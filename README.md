@@ -75,7 +75,7 @@ There are currently two API-endpoints on the server:
     - The number of vehicles included in the json depends on the numbner of participants in the session.
     - Vehicles are sorted based on the final race position.
 
-> [!INFORMATION]
+> [!IMPORTANT]
 > By default the http-server socket runs on localhost (127.0.0.1) and port (8000)
 > This can be changed in the file `server.py`'s method `run_server` at the line:
 > ```
