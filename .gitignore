@@ -2,3 +2,4 @@ logs/
 
 src/logs
 src/app_gui.py
+src/__pycache__
