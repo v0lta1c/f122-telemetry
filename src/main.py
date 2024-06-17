@@ -35,6 +35,7 @@ discordMessagingEnabled = False;
 #Storage variables for the packetData
 
 participant_data = ParticipantData();
+participant_data_cache = ParticipantData();
 finalClassification_data = FinalClassification();
 session_data = SessionData();
 laptime_data = LapTimeData();
@@ -43,6 +44,11 @@ car_telemetry_data = CarTelemetry();
 penalty_event = PenaltyEvent();
 car_status_data = CarStatusData();
 pit_status = PitStatusStorage();
+
+"""
+This function runs in its seprate thread and is responsible for the socket that sends data to the discord bot. 
+Necessary if --enable_discord was set.
+"""
 
 ipc_socket = None;
 
@@ -67,6 +73,7 @@ def connect_to_ipc():
             time.sleep(5);
 
 #Function to change the value of the global variable discordMessagingEnabled
+
 def enableDiscordMessaging() -> None:
     global discordMessagingEnabled;
     discordMessagingEnabled = True;
@@ -79,14 +86,15 @@ def printData(numCars: int) -> None:
 
     #First we sort the array based on the car position
     sorted_fcData = sorted(finalClassification_data.get_fcDict().items(), key=lambda item: item[1]['m_position']);
-    print(sorted_fcData);
     #slice the array based on the number of cars
     sliced_sorted_fcData = sorted_fcData[:numCars];
     #finally convert it into a dict
     fcDataSorted = dict(sliced_sorted_fcData);
-    print(fcDataSorted);
 
     #Sort the participant data and car damage data based on the keys of final classification packet
+    print(f'Participant Data Dict: {participant_data.get_participant_data_list()}');
+    print(f'fcDataSorted Dict: {fcDataSorted}');
+    print(f'Numcars: {numCars}');
     partDataSorted = {key: participant_data.get_participant_data_list()[key] for key in fcDataSorted};
     carDamageDataSorted = {key: car_damage_data.get_carDamage_dict()[key] for key in fcDataSorted};
     laptimeDataSorted = {key: laptime_data.get_lapdata_dict()[key] for key in fcDataSorted};
@@ -166,32 +174,43 @@ def printData(numCars: int) -> None:
     shared.update_json_dump_file(data);
     writeToFile(data);
 
+"""
+This function runs in a separate thread and checks the pit status of every vehicle.
+
+By default, it calls out the driver and their fitted tyre with the correct age when they exit the pits.
+Another option to call out the driver and their fitted tyre when they enter the pits is included but commented.
+
+"""
+
 def check_pit_status():
     while True:
         for driver in range(22):
             if inSession:
                 current_pit_status = laptime_data.get_lapdata_value_from_key(driver)['m_pitStatus'];
 
-                #if current_pit_status is not None:
-                    #continue;
-
                 pit_status.update_pit_status(driver, current_pit_status);
 
                 if pit_status.on_status_change(driver):
-                    driverName = participant_data.get_participant(driver)['m_name'];
-                    tyreAge = car_status_data.get_car_status_data_from_key(driver)['m_tyresAgeLaps'];
-                    tyreCompound = car_status_data.get_car_status_data_from_key(driver)['m_visualTyreCompound'];
-                    tyreCompoundName = TyreCompound(tyreCompound).name;
-                    #if current_pit_status == 1:
-                    #    if tyreAge == 0:
-                    #        send_ipc_trigger(f'PIT_CHANGE: Driver {driverName} is entering the pits with fresh {tyreCompoundName}s');
-                    #    else:
-                    #        send_ipc_trigger(f'PIT_CHANGE: Driver {driverName} is entering the pits with {tyreAge} laps old {tyreCompoundName}s.');
-                    if current_pit_status == 0:
-                        if tyreAge == 0:
-                            send_ipc_trigger(f'PIT_CHANGE: Driver {driverName} is leaving the pits with fresh {tyreCompoundName}s.');
-                        else:
-                            send_ipc_trigger(f'PIT_CHANGE: Driver {driverName} is leaving the pits with {tyreAge} laps old {tyreCompoundName}s.');
+                    driverDict = participant_data.get_participant_data_list();
+                    if driver in driverDict:
+                        driverName = participant_data.get_participant(driver)['m_name'];
+                        tyreAge = car_status_data.get_car_status_data_from_key(driver)['m_tyresAgeLaps'];
+                        tyreCompound = car_status_data.get_car_status_data_from_key(driver)['m_visualTyreCompound'];
+                        tyreCompoundName = TyreCompound(tyreCompound).name;
+
+                        ## Uncomment if you want to also call out when a driver enters the pits
+
+                        #if current_pit_status == 1:
+                        #    if tyreAge == 0:
+                        #        send_ipc_trigger(f'PIT_CHANGE: Driver {driverName} is entering the pits with fresh {tyreCompoundName}s');
+                        #    else:
+                        #        send_ipc_trigger(f'PIT_CHANGE: Driver {driverName} is entering the pits with {tyreAge} laps old {tyreCompoundName}s.');
+                        
+                        if current_pit_status == 0:
+                            if tyreAge == 0:
+                                send_ipc_trigger(f'PIT_CHANGE: Driver {driverName} is leaving the pits with fresh {tyreCompoundName}s.');
+                            else:
+                                send_ipc_trigger(f'PIT_CHANGE: Driver {driverName} is leaving the pits with {tyreAge} laps old {tyreCompoundName}s.');
 
         time.sleep(10);
 
@@ -298,7 +317,7 @@ def main() -> None:
 
                     case EventStringCode.FASTEST_LAP.value:
                         e_fastestLapStr = struct.unpack('<Bf', data[28:33]);
-                        if discordMessagingEnabled:
+                        if discordMessagingEnabled and 'm_name' in participant_data.get_participant(e_fastestLapStr[0]):
                             b, c = divmod(e_fastestLapStr[1]%3600, 60);
                             driverName = participant_data.get_participant(e_fastestLapStr[0])['m_name'];
                             send_ipc_trigger(f'FASTEST_LAP: Driver {driverName} has just set the fastest lap time of {int(b)}.{str(c)[:5]}');
@@ -307,16 +326,17 @@ def main() -> None:
                         penaltyStr = struct.unpack(p_eventPenaltyString, data[28:35]);
                         penalty_event.add_penalty_data(penaltyStr);
                         
-                        penalisedDriver = participant_data.get_participant(penalty_event.get_penalty_data_from_key('vehicleIdx'))['m_name'];
-                        if discordMessagingEnabled:
-                            if penalty_event.get_penalty_data_from_key('penaltyType') == PenaltyTypes.DRIVE_THROUGH.value:
-                                send_ipc_trigger(f'DRIVE_THROUGH: Driver {penalisedDriver} has been issued a drive through penalty.');
-                            if penalty_event.get_penalty_data_from_key('penaltyType') == PenaltyTypes.TIME_PENALTY.value:
-                                send_ipc_trigger(f'TIME_PENALTY: Driver {penalisedDriver} has been issued a time penalty');
+                        if 'm_name' in participant_data.get_participant(penalty_event.get_penalty_data_from_key('vehicleIdx')):
+                            penalisedDriver = participant_data.get_participant(penalty_event.get_penalty_data_from_key('vehicleIdx'))['m_name'];
+                            if discordMessagingEnabled:
+                                if penalty_event.get_penalty_data_from_key('penaltyType') == PenaltyTypes.DRIVE_THROUGH.value:
+                                    send_ipc_trigger(f'DRIVE_THROUGH: Driver {penalisedDriver} has been issued a drive through penalty.');
+                                if penalty_event.get_penalty_data_from_key('penaltyType') == PenaltyTypes.TIME_PENALTY.value:
+                                    send_ipc_trigger(f'TIME_PENALTY: Driver {penalisedDriver} has been issued a time penalty');
             
                     case EventStringCode.RETIREMENT.value:
                         e_retirementStr = data[28];
-                        if(discordMessagingEnabled):
+                        if(discordMessagingEnabled) and 'm_name' in participant_data.get_participant(e_retirementStr):
 
                             driverName = participant_data.get_participant(e_retirementStr)['m_name'];
                             send_ipc_trigger(f'RETIREMENT: Driver {driverName} has retired from the session.');
@@ -329,6 +349,15 @@ def main() -> None:
                     participantStr = struct.unpack(p_participantsPacketString, data[56*i+25:56*i+39]);
                     participant_data.add_participant(i, participantStr);
                     #print(participant_data.get_participant_data_list().get(i).get('m_driverID'));
+
+                #This code block makes sure that the participant list stays updated throughout the whole race
+                #If participant data is smaller than the data in cache then replace the participant data with the cache
+                if len(participant_data.get_participant_data_list()) == numCars:
+                    participant_data_cache.get_participant_data_list().update(participant_data.get_participant_data_list());
+            
+                if len(participant_data.get_participant_data_list()) != numCars and participant_data_cache.get_participant_data_list() is not None:
+                    participant_data.get_participant_data_list().update(participant_data_cache.get_participant_data_list());
+
 
             case 6: #Car Telemetry Packet
                 tempStr = [];
