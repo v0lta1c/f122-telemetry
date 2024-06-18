@@ -1,5 +1,5 @@
 logs/
-vscode/
+.vscode/
 
 src/logs
 src/app_gui.py
