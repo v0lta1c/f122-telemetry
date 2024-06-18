@@ -53,24 +53,25 @@ Necessary if --enable_discord was set.
 ipc_socket = None;
 
 def connect_to_ipc():
-    global ipc_socket;
-    while True:    
-        try:
-            ipc_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM); 
-            ipc_socket.connect((IP_discordIPC, PORT_discordIPC));
-            print("Connected to the IPC Socket");
-            
-            #keepAlive
-            while True:
-                time.sleep(1);
+    if discordMessagingEnabled:
+        global ipc_socket;
+        while True:    
+            try:
+                ipc_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM); 
+                ipc_socket.connect((IP_discordIPC, PORT_discordIPC));
+                print("Connected to the IPC Socket");
+                
+                #keepAlive
+                while True:
+                    time.sleep(1);
 
-        except ConnectionRefusedError:
-            print("Failed to connect to IPC: Connection Refused.\nRetrying in 5 seconds.....");
-            time.sleep(5);
+            except ConnectionRefusedError:
+                print("Failed to connect to IPC: Connection Refused.\nRetrying in 5 seconds.....");
+                time.sleep(5);
 
-        except Exception as e:
-            print(f'Error occured: {e}');
-            time.sleep(5);
+            except Exception as e:
+                print(f'Error occured: {e}');
+                time.sleep(5);
 
 #Function to change the value of the global variable discordMessagingEnabled
 
@@ -206,7 +207,7 @@ def check_pit_status():
                         #    else:
                         #        send_ipc_trigger(f'PIT_CHANGE: Driver {driverName} is entering the pits with {tyreAge} laps old {tyreCompoundName}s.');
                         
-                        if current_pit_status == 0:
+                        if current_pit_status == 0 and discordMessagingEnabled:
                             if tyreAge == 0:
                                 send_ipc_trigger(f'PIT_CHANGE: Driver {driverName} is leaving the pits with fresh {tyreCompoundName}s.');
                             else:
@@ -216,14 +217,15 @@ def check_pit_status():
 
 def send_ipc_trigger(message: str) -> None:
 
-    global ipc_socket;
-    if ipc_socket is None:
-        print("No IPC connection available");
+    if discordMessagingEnabled:
+        global ipc_socket;
+        if ipc_socket is None:
+            print("No IPC connection available");
 
-    try:
-        ipc_socket.sendall(message.encode());
-    except Exception as e:
-        print(f'Error: Failed to send data over IPC: {e}');
+        try:
+            ipc_socket.sendall(message.encode());
+        except Exception as e:
+            print(f'Error: Failed to send data over IPC: {e}');
 
 def writeToFile(data: List[Dict]) -> None:
 
