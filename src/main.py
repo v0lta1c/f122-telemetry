@@ -6,7 +6,9 @@ from server import run_server
 #from app_gui import run_gui
 import threading
 import socket
+import select
 import struct
+import sys
 import os
 import json
 import time
@@ -23,6 +25,7 @@ TODO List
 """ Var to check whether the results have been printed or not
     Prevents duplicating of results on the print page"""
 
+listeningSocketActive = False;
 
 resultsPrinted: int = 1;
 
@@ -31,6 +34,9 @@ inSession: int = False;
 
 #   Utility variable for enabling the discord bot integration
 discordMessagingEnabled = False;
+
+# Timer to check the driver positions
+position_timer = None;
 
 #Storage variables for the packetData
 
@@ -44,6 +50,7 @@ car_telemetry_data = CarTelemetry();
 penalty_event = PenaltyEvent();
 car_status_data = CarStatusData();
 pit_status = PitStatusStorage();
+current_positions = CurrentDriverPositions();
 
 """
 This function runs in its seprate thread and is responsible for the socket that sends data to the discord bot. 
@@ -247,186 +254,255 @@ def writeToFile(data: List[Dict]) -> None:
         
         with open(fileName, 'w') as f:json.dump(data, f, indent=4, separators=(',', ': '), ensure_ascii=False);    
 
+""" 
+    The following function save_current_positions records the positions of drivers every 30 seconds and writes it to a file.
+    This is to account for backup purposes if and when the multiplayer session bugs out.    
+
+"""
+
+def start_position_timer() -> None:
+    global position_timer;
+
+    # We use the timer sub-class from thread and make a new object every 30 seconds
+    position_timer = threading.Timer(POSITION_SAVE_INTERVAL, save_current_positions);
+    position_timer.start();
+
+def save_current_positions() -> None:
+
+    global position_timer;
+
+    driverName: str;
+    driverPosition: int;
+    data = [];
+    for key in participant_data.get_participant_data_list():
+        driverName = participant_data.get_participant(key)['m_name'];
+        driverPosition = laptime_data.get_lapdata_value_from_key(key)['m_carPosition'];
+        data.append({driverName: driverPosition});
+
+    # Save the driver positions to a file
+    directory = "logs";
+    os.makedirs(directory, exist_ok=True);
+
+    fileName = "";
+    fName = "logs/driverPositions";
+    fileExtension = ".json";
+    fileName = "".join((fName, fileExtension));
+    with open(fileName, 'w') as f:json.dump(data, f, indent=4, separators=(',', ':'), ensure_ascii=False);
+
+    # Call the timer again and restart the process
+    start_position_timer();
+
 def main() -> None:
 
     global resultsPrinted;
     global inSession;
+    global listeningSocketActive;
+    global position_timer;
     client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM);
     client.bind((IP, UDP_PORT));
     print(f'Telemetry Client started on IP: {IP} and Port: {UDP_PORT}');
 
+    position_timer = None;
+
+    last_data_recv_time = time.time();
     while(True):
-        data, addr = client.recvfrom(1500); # open the client connection and recv data
 
-        #   Separate the header
-        dataHeader = data[0:24]; #Header size: 24 bytes
+        try:
 
-        (h_packetFormat, h_gameMajorVersion, h_gameMinorVersion, h_packetVersion, h_packetID, h_sessionUID, h_sessionTime, h_frameIdentifier, h_playerCarIndex, h_secondaryPlayerCarIndex) = struct.unpack(p_headerString, dataHeader);
+            ready = select.select([client], [], [], TIMEOUT);
+            if ready[0]:
+                data, addr = client.recvfrom(1500); # open the client connection and recv data
 
-        match(h_packetID):
+                last_data_recv_time = time.time();
 
-            case 1: #Session Data Packet
-                inSession = True;
-                tempStr = [];
-                sessionData = [];
-                sessionData_marshals = [];
-                sessionData2 = [];
-                sessionData_weather = [];
-                sessionData3 = [];
-                sessionData = struct.unpack(p_sessionPacketString_1, data[24:43]);
-                sessionData = list(sessionData);
-                #Unpack all the marshal zones into a list
-                for i in range(21):
-                    tempStr = struct.unpack(p_sessionPacketString_2, data[5*i+43:5*i+48]);
-                    sessionData_marshals.append(tempStr);
-                sessionData.append(sessionData_marshals);
+                if(listeningSocketActive == False):
+                    start_position_timer();
+                
+                listeningSocketActive = True;
+                #   Separate the header
+                dataHeader = data[0:24]; #Header size: 24 bytes
 
-                #Continue unpacking normally
-                sessionData2 = struct.unpack(p_sessionPacketString_3, data[148:151]);
-                sessionData2 = list(sessionData2);
-                sessionData.extend(sessionData2);
+                (h_packetFormat, h_gameMajorVersion, h_gameMinorVersion, h_packetVersion, h_packetID, h_sessionUID, h_sessionTime, h_frameIdentifier, h_playerCarIndex, h_secondaryPlayerCarIndex) = struct.unpack(p_headerString, dataHeader);
 
-                #Now unpack the WeatherForecastSamples
-                for i in range(56):
-                    tempStr = struct.unpack(p_sessionPacketString_4, data[8*i+151:8*i+159]);
-                    sessionData_weather.append(tempStr);
-                sessionData.append(sessionData_weather);
-            
-                #Now again unpack normally
-                sessionData3 = struct.unpack(p_sessionPacketString_5, data[599:632]);
-                sessionData3 = list(sessionData3);
-                sessionData.extend(sessionData3);
+                match(h_packetID):
 
-                #Store it inside the Storage Class
-                session_data.add_session_data(sessionData);
-            
-            case 2: #Lap Data Packet
-                lapdataStr = [];
-                for i in range(22):
-                    #Struct size : 43 bytes
-                    lapdataStr = struct.unpack(p_lapDataPacketString, data[43*i+24:43*i+67]);
-                    laptime_data.add_laptime_data(i, lapdataStr);
-
-            case 3: #Event Data Packet
-                eventDataStr = [];
-                eventType = struct.unpack(p_eventTypeString, data[24:28]);
-                eventType = ''.join(chr(num) for num in eventType);
-            
-                match eventType:
-
-                    case EventStringCode.SESSION_STARTED.value:
+                    case 1: #Session Data Packet
                         inSession = True;
+                        tempStr = [];
+                        sessionData = [];
+                        sessionData_marshals = [];
+                        sessionData2 = [];
+                        sessionData_weather = [];
+                        sessionData3 = [];
+                        sessionData = struct.unpack(p_sessionPacketString_1, data[24:43]);
+                        sessionData = list(sessionData);
+                        #Unpack all the marshal zones into a list
+                        for i in range(21):
+                            tempStr = struct.unpack(p_sessionPacketString_2, data[5*i+43:5*i+48]);
+                            sessionData_marshals.append(tempStr);
+                        sessionData.append(sessionData_marshals);
 
-                    case EventStringCode.FASTEST_LAP.value:
-                        e_fastestLapStr = struct.unpack('<Bf', data[28:33]);
-                        if discordMessagingEnabled and 'm_name' in participant_data.get_participant(e_fastestLapStr[0]):
-                            b, c = divmod(e_fastestLapStr[1]%3600, 60);
-                            driverName = participant_data.get_participant(e_fastestLapStr[0])['m_name'];
-                            send_ipc_trigger(f'FASTEST_LAP: Driver {driverName} has just set the fastest lap time of {int(b)}.{str(c)[:5]}');
+                        #Continue unpacking normally
+                        sessionData2 = struct.unpack(p_sessionPacketString_3, data[148:151]);
+                        sessionData2 = list(sessionData2);
+                        sessionData.extend(sessionData2);
 
-                    case EventStringCode.PENALTY_ISSUED.value:
-                        penaltyStr = struct.unpack(p_eventPenaltyString, data[28:35]);
-                        penalty_event.add_penalty_data(penaltyStr);
+                        #Now unpack the WeatherForecastSamples
+                        for i in range(56):
+                            tempStr = struct.unpack(p_sessionPacketString_4, data[8*i+151:8*i+159]);
+                            sessionData_weather.append(tempStr);
+                        sessionData.append(sessionData_weather);
+                    
+                        #Now again unpack normally
+                        sessionData3 = struct.unpack(p_sessionPacketString_5, data[599:632]);
+                        sessionData3 = list(sessionData3);
+                        sessionData.extend(sessionData3);
+
+                        #Store it inside the Storage Class
+                        session_data.add_session_data(sessionData);
+                    
+                    case 2: #Lap Data Packet
+                        lapdataStr = [];
+                        for i in range(22):
+                            #Struct size : 43 bytes
+                            lapdataStr = struct.unpack(p_lapDataPacketString, data[43*i+24:43*i+67]);
+                            laptime_data.add_laptime_data(i, lapdataStr);
+
+                    case 3: #Event Data Packet
+                        eventDataStr = [];
+                        eventType = struct.unpack(p_eventTypeString, data[24:28]);
+                        eventType = ''.join(chr(num) for num in eventType);
+                    
+                        match eventType:
+
+                            case EventStringCode.SESSION_STARTED.value:
+                                inSession = True;
+
+                            case EventStringCode.FASTEST_LAP.value:
+                                e_fastestLapStr = struct.unpack('<Bf', data[28:33]);
+                                if discordMessagingEnabled and 'm_name' in participant_data.get_participant(e_fastestLapStr[0]):
+                                    b, c = divmod(e_fastestLapStr[1]%3600, 60);
+                                    driverName = participant_data.get_participant(e_fastestLapStr[0])['m_name'];
+                                    send_ipc_trigger(f'FASTEST_LAP: Driver {driverName} has just set the fastest lap time of {int(b)}.{str(c)[:5]}');
+
+                            case EventStringCode.PENALTY_ISSUED.value:
+                                penaltyStr = struct.unpack(p_eventPenaltyString, data[28:35]);
+                                penalty_event.add_penalty_data(penaltyStr);
+                                
+                                if 'm_name' in participant_data.get_participant(penalty_event.get_penalty_data_from_key('vehicleIdx')):
+                                    penalisedDriver = participant_data.get_participant(penalty_event.get_penalty_data_from_key('vehicleIdx'))['m_name'];
+                                    if discordMessagingEnabled:
+                                        if penalty_event.get_penalty_data_from_key('penaltyType') == PenaltyTypes.DRIVE_THROUGH.value:
+                                            send_ipc_trigger(f'DRIVE_THROUGH: Driver {penalisedDriver} has been issued a drive through penalty.');
+                                        if penalty_event.get_penalty_data_from_key('penaltyType') == PenaltyTypes.TIME_PENALTY.value:
+                                            send_ipc_trigger(f'TIME_PENALTY: Driver {penalisedDriver} has been issued a time penalty');
+                    
+                            case EventStringCode.RETIREMENT.value:
+                                e_retirementStr = data[28];
+                                if(discordMessagingEnabled) and 'm_name' in participant_data.get_participant(e_retirementStr):
+
+                                    driverName = participant_data.get_participant(e_retirementStr)['m_name'];
+                                    send_ipc_trigger(f'RETIREMENT: Driver {driverName} has retired from the session.');
+
+                    case 4: #Participants Data Packet
+                        numCars: int = data[24];
+                        participantStr = [];
+                        for i in range(numCars):
+                            #Struct size: 14 bytes
+                            participantStr = struct.unpack(p_participantsPacketString, data[56*i+25:56*i+39]);
+                            participant_data.add_participant(i, participantStr);
+                            #print(participant_data.get_participant_data_list().get(i).get('m_driverID'));
+
+                        #This code block makes sure that the participant list stays updated throughout the whole race
+                        #If participant data is smaller than the data in cache then replace the participant data with the cache
+                        if len(participant_data.get_participant_data_list()) == numCars:
+                            participant_data_cache.get_participant_data_list().update(participant_data.get_participant_data_list());
+                    
+                        if len(participant_data.get_participant_data_list()) != numCars and participant_data_cache.get_participant_data_list() is not None:
+                            participant_data.get_participant_data_list().update(participant_data_cache.get_participant_data_list());
+
+
+                    case 6: #Car Telemetry Packet
+                        tempStr = [];
+                        carTelemetryStr = [];
+
+                        for i in range(22):
+                            #Struct size: 60 bytes
+                            tempStr = struct.unpack(p_carTelemetryPacketString_1, data[60*i+24:60*i+46]);
+                            carTelemetryStr.extend(tempStr);
+                            tempStr = struct.unpack(p_carTelemetryPacketString_2, data[60*i+46:60*i+54]);
+                            carTelemetryStr.append(tempStr);
+                            tempStr = struct.unpack(p_carTelemetryPacketString_3, data[60*i+54:60*i+58]);
+                            carTelemetryStr.append(tempStr);
+                            tempStr = struct.unpack(p_carTelemetryPacketString_4, data[60*i+58:60*i+62]);
+                            carTelemetryStr.append(tempStr);
+                            tempStr = struct.unpack(p_carTelemetryPacketString_5, data[60*i+62:60*i+64]);
+                            carTelemetryStr.extend(tempStr);
+                            tempStr = struct.unpack(p_carTelemetryPacketString_6, data[60*i+64:60*i+80]);
+                            carTelemetryStr.append(tempStr);
+                            tempStr = struct.unpack(p_carTelemetryPacketString_7, data[60*i+80:60*i+84]);
+                            carTelemetryStr.append(tempStr);
+                            car_telemetry_data.add_car_telemetry_data(i, carTelemetryStr);
+                            carTelemetryStr.clear();
+
+                    case 7: #Car Status Data Packet
+                        carStatusData = [];
+                        for i in range(22):
+                            #Struct size: 47 bytes
+                            carStatusData = struct.unpack(p_carStatusPacketString, data[47*i+24:47*i+71]);
+                            car_status_data.update_car_status_data(i, carStatusData);
+
+                    case 8: #Final  Classification Packet
+                        numCars: int = data[24];
+                        finalData = [];
+                        for i in range(numCars):
+                            #Struct size: 24 bytes
+                            finalData = struct.unpack(p_finalClassificationPacketString, data[45*i+25:45*i+49]);
+                            finalClassification_data.add_classification_data(i, finalData);
+
+                        if(resultsPrinted %2 == 0):
+                            printData(numCars);
+                            inSession = False;
+                            position_timer.cancel();
+                            if(discordMessagingEnabled):
+                                send_ipc_trigger('Race Data Trigger');
                         
-                        if 'm_name' in participant_data.get_participant(penalty_event.get_penalty_data_from_key('vehicleIdx')):
-                            penalisedDriver = participant_data.get_participant(penalty_event.get_penalty_data_from_key('vehicleIdx'))['m_name'];
-                            if discordMessagingEnabled:
-                                if penalty_event.get_penalty_data_from_key('penaltyType') == PenaltyTypes.DRIVE_THROUGH.value:
-                                    send_ipc_trigger(f'DRIVE_THROUGH: Driver {penalisedDriver} has been issued a drive through penalty.');
-                                if penalty_event.get_penalty_data_from_key('penaltyType') == PenaltyTypes.TIME_PENALTY.value:
-                                    send_ipc_trigger(f'TIME_PENALTY: Driver {penalisedDriver} has been issued a time penalty');
-            
-                    case EventStringCode.RETIREMENT.value:
-                        e_retirementStr = data[28];
-                        if(discordMessagingEnabled) and 'm_name' in participant_data.get_participant(e_retirementStr):
+                        if(resultsPrinted == 1001):
+                            resultsPrinted = 1;
+                        resultsPrinted += 1;
 
-                            driverName = participant_data.get_participant(e_retirementStr)['m_name'];
-                            send_ipc_trigger(f'RETIREMENT: Driver {driverName} has retired from the session.');
+                    case 10: #Car Damage Packet
+                        tempStr = [];
+                        carDamageStr = [];
+                        
+                        for i in range(22):
+                            #Unpack all tyre wear into a list
+                            tempStr = struct.unpack(p_carDamagePacketString_1, data[42*i+24:42*i+40]);
+                            carDamageStr.append(list(tempStr));
+                            #Unpack all tyre damage into a list
+                            tempStr = struct.unpack(p_carDamagePacketString_2, data[42*i+40:42*i+44]);
+                            carDamageStr.append(list(tempStr));
+                            #unpack all brakes damage into a list
+                            tempStr = struct.unpack(p_carDamagePacketString_3, data[42*i+44:42*i+48]);
+                            carDamageStr.append(list(tempStr));
+                            tempStr = struct.unpack(p_carDamagePacketString_4, data[42*i+48:42*i+66]);
+                            carDamageStr.extend(tempStr);
+                            car_damage_data.add_carDamage_Data(i, carDamageStr);
+                            carDamageStr.clear();
+            else:
 
-            case 4: #Participants Data Packet
-                numCars: int = data[24];
-                participantStr = [];
-                for i in range(numCars):
-                    #Struct size: 14 bytes
-                    participantStr = struct.unpack(p_participantsPacketString, data[56*i+25:56*i+39]);
-                    participant_data.add_participant(i, participantStr);
-                    #print(participant_data.get_participant_data_list().get(i).get('m_driverID'));
+                # Socket did not receive any data for some time
 
-                #This code block makes sure that the participant list stays updated throughout the whole race
-                #If participant data is smaller than the data in cache then replace the participant data with the cache
-                if len(participant_data.get_participant_data_list()) == numCars:
-                    participant_data_cache.get_participant_data_list().update(participant_data.get_participant_data_list());
-            
-                if len(participant_data.get_participant_data_list()) != numCars and participant_data_cache.get_participant_data_list() is not None:
-                    participant_data.get_participant_data_list().update(participant_data_cache.get_participant_data_list());
-
-
-            case 6: #Car Telemetry Packet
-                tempStr = [];
-                carTelemetryStr = [];
-
-                for i in range(22):
-                    #Struct size: 60 bytes
-                    tempStr = struct.unpack(p_carTelemetryPacketString_1, data[60*i+24:60*i+46]);
-                    carTelemetryStr.extend(tempStr);
-                    tempStr = struct.unpack(p_carTelemetryPacketString_2, data[60*i+46:60*i+54]);
-                    carTelemetryStr.append(tempStr);
-                    tempStr = struct.unpack(p_carTelemetryPacketString_3, data[60*i+54:60*i+58]);
-                    carTelemetryStr.append(tempStr);
-                    tempStr = struct.unpack(p_carTelemetryPacketString_4, data[60*i+58:60*i+62]);
-                    carTelemetryStr.append(tempStr);
-                    tempStr = struct.unpack(p_carTelemetryPacketString_5, data[60*i+62:60*i+64]);
-                    carTelemetryStr.extend(tempStr);
-                    tempStr = struct.unpack(p_carTelemetryPacketString_6, data[60*i+64:60*i+80]);
-                    carTelemetryStr.append(tempStr);
-                    tempStr = struct.unpack(p_carTelemetryPacketString_7, data[60*i+80:60*i+84]);
-                    carTelemetryStr.append(tempStr);
-                    car_telemetry_data.add_car_telemetry_data(i, carTelemetryStr);
-                    carTelemetryStr.clear();
-
-            case 7: #Car Status Data Packet
-                carStatusData = [];
-                for i in range(22):
-                    #Struct size: 47 bytes
-                    carStatusData = struct.unpack(p_carStatusPacketString, data[47*i+24:47*i+71]);
-                    car_status_data.update_car_status_data(i, carStatusData);
-
-            case 8: #Final  Classification Packet
-                numCars: int = data[24];
-                finalData = [];
-                for i in range(numCars):
-                    #Struct size: 24 bytes
-                    finalData = struct.unpack(p_finalClassificationPacketString, data[45*i+25:45*i+49]);
-                    finalClassification_data.add_classification_data(i, finalData);
-
-                if(resultsPrinted %2 == 0):
-                    printData(numCars);
-                    inSession = False;
-                    if(discordMessagingEnabled):
-                        send_ipc_trigger('Race Data Trigger');
-                
-                if(resultsPrinted == 1001):
-                    resultsPrinted = 1;
-                resultsPrinted += 1;
-
-            case 10: #Car Damage Packet
-                tempStr = [];
-                carDamageStr = [];
-                
-                for i in range(22):
-                    #Unpack all tyre wear into a list
-                    tempStr = struct.unpack(p_carDamagePacketString_1, data[42*i+24:42*i+40]);
-                    carDamageStr.append(list(tempStr));
-                    #Unpack all tyre damage into a list
-                    tempStr = struct.unpack(p_carDamagePacketString_2, data[42*i+40:42*i+44]);
-                    carDamageStr.append(list(tempStr));
-                    #unpack all brakes damage into a list
-                    tempStr = struct.unpack(p_carDamagePacketString_3, data[42*i+44:42*i+48]);
-                    carDamageStr.append(list(tempStr));
-                    tempStr = struct.unpack(p_carDamagePacketString_4, data[42*i+48:42*i+66]);
-                    carDamageStr.extend(tempStr);
-                    car_damage_data.add_carDamage_Data(i, carDamageStr);
-                    carDamageStr.clear();
+                # This piece of code cancels the current driver position timer on timeout
+                current_time = time.time();
+                if current_time - last_data_recv_time >= TIMEOUT:
+                    listeningSocketActive = False;
+                    last_data_recv_time = current_time;
+                    if position_timer is not None:
+                        position_timer.cancel();
+                        position_timer = None;
+        except KeyboardInterrupt:
+            sys.exit(0);
 
 if __name__ == '__main__':
     

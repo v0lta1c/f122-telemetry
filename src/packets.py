@@ -467,3 +467,19 @@ class CarStatusData:
     
     def __repr__(self):
         return repr(self.data)
+    
+class CurrentDriverPositions:
+    def __init__(self):
+        self.data: Dict [int, int] = {};
+
+    def update_current_driver_positions(self, key: int, position: int) -> None:
+
+        self.data = {
+            key: position
+        };
+
+    def get_current_driver_positions(self) -> Dict[int, int]:
+        return self.data;
+
+    def get_current_status_for_driver(self, key: int) -> int:
+        return self.data.get(key);
