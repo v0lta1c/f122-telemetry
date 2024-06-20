@@ -6,3 +6,4 @@ src/app_gui.py
 src/__pycache__
 src/dist
 src/build
+src/ui/__pycache__
