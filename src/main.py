@@ -3,7 +3,7 @@ from packets import *
 import shared
 from typing import Dict, Any, List
 from server import run_server
-#from app_gui import run_gui
+from ui import gui
 import threading
 import socket
 import select
@@ -528,9 +528,9 @@ if __name__ == '__main__':
     pit_status_thread = threading.Thread(target=check_pit_status);
     pit_status_thread.start();
 
-    #Start the gui thread here
-    #gui_thread = threading.Thread(target=run_gui, args=(car_telemetry_data, participant_data, session_data), daemon=True);
-    #gui_thread.start();
+    # Start the gui thread here
+    gui_thread = threading.Thread(target=gui.run_gui, args=(car_telemetry_data, participant_data, session_data), daemon=True);
+    gui_thread.start();
 
     #Run the main function
     main();
