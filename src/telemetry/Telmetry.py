@@ -29,6 +29,8 @@ class Telemetry:
         self.car_status_data = CarStatusData();
         self.pit_status = PitStatusStorage();
         self.current_positions = CurrentDriverPositions();
+
+        self.results_printed = 1; # Prevents double printing of the final output on console
     
         # Initialize the log drivers instance
         self.log_drivers = LogDrivers(self.participant_data, self.laptime_data, self.current_positions);
@@ -226,17 +228,18 @@ class Telemetry:
                                 finalData = struct.unpack(p_finalClassificationPacketString, data[45*i+25:45*i+49]);
                                 self.finalClassification_data.add_classification_data(i, finalData);
 
-                            if(resultsPrinted %2 == 0):
+                            if(self.results_printed %2 == 0):
                                 printer = RaceDataPrinter();
                                 printer.print_data(numCars, self.finalClassification_data, self.participant_data, self.laptime_data, self.car_damage_data, self.session_data, self.current_positions);
                                 inSession = False;
-                                position_timer.cancel();
+                                if position_timer is not None:
+                                    position_timer.cancel();
                                 if(self.discord_enabled):
                                     self.send_ipc_trigger('Race Data Trigger');
                             
-                            if(resultsPrinted == 1001):
-                                resultsPrinted = 1;
-                            resultsPrinted += 1;
+                            if(self.results_printed == 1001):
+                                self.results_printed = 1;
+                            self.results_printed += 1;
 
                         case 10: #Car Damage Packet
                             tempStr = [];

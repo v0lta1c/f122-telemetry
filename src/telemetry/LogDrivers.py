@@ -5,12 +5,18 @@ import os
 from packets import ParticipantData, LapTimeData, CurrentDriverPositions
 from constants import POSITION_SAVE_INTERVAL
 
+""" 
+    The following class records the positions of drivers every 30 seconds and writes it to a file.
+    This is to account for backup purposes if and when the multiplayer session bugs out.    
+
+"""
+
 class LogDrivers:
 
     def __init__(self, participant_data, laptime_data, current_positions):
         self.participant_data: ParticipantData = participant_data;
         self.laptime_data: LapTimeData = laptime_data;
-        self.current_positins: CurrentDriverPositions = current_positions;
+        self.current_positions: CurrentDriverPositions = current_positions;
         self.position_timer = None;
 
     def start_position_timer(self):
