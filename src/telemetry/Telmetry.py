@@ -10,6 +10,7 @@ from DiscordIPCSocket import DiscordIPCSocket
 
 from telemetry.PrintRaceData import RaceDataPrinter
 from telemetry.LogDrivers import LogDrivers
+from telemetry.PitStatus import PitStatusChecker
 
 class Telemetry:
     def __init__(self):
@@ -34,6 +35,10 @@ class Telemetry:
     
         # Initialize the log drivers instance
         self.log_drivers = LogDrivers(self.participant_data, self.laptime_data, self.current_positions);
+    
+        # Initialize the pit status storage instance
+        self.pit_status_storage = PitStatusChecker(self.laptime_data, self.pit_status, self.participant_data, self.car_status_data, self.send_ipc_trigger);
+        self.pit_status_storage.in_session = False; # Flag to check whether the socket is actually listening to the data
 
     def start(self, discord_enabled):
         self.running = True;
@@ -42,6 +47,11 @@ class Telemetry:
         
         self.thread = threading.Thread(target=self.socket_listener, daemon=True);
         self.thread.start();
+
+        #Start the pit status thread here
+        self.pit_status_thread = threading.Thread(target=self.pit_status_storage.check_pit_status, args=(self.discord_enabled,), daemon=True);
+        self.pit_status_thread.start();
+
     
         # Start the thread of the discord ipc socket
         if self.discord_enabled:
@@ -62,6 +72,9 @@ class Telemetry:
         # Stop the logging timer as well
         if self.log_drivers.position_timer is not None:
             self.log_drivers.stop_position_timer();
+    
+        if self.pit_status_thread.is_alive():
+            self.pit_status_thread.join();
 
     def socket_listener(self):
 
@@ -86,6 +99,7 @@ class Telemetry:
                     last_data_recv_time = time.time();
 
                     self.log_drivers.start_position_timer();
+                    self.pit_status_storage.in_session = True;
 
                     #   Separate the header
                     dataHeader = data[0:24]; #Header size: 24 bytes
@@ -263,6 +277,8 @@ class Telemetry:
 
                     # Socket did not receive any data for some time
 
+                    # Set the in_session variable to false
+                    self.pit_status_storage.in_session = False;
                     # This piece of code cancels the current driver position timer on timeout
                     current_time = time.time();
                     if current_time - last_data_recv_time >= TIMEOUT:

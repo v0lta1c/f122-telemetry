@@ -5,7 +5,10 @@ from matplotlib.figure import Figure
 import matplotlib.animation as animation
 import time
 import sys
+import threading
+
 from ui.TelemetryGui import TelemetryGui
+from server import run_server
 
 from packets import ParticipantData, CarTelemetry, SessionData
 
@@ -39,10 +42,13 @@ class TelemetryApp:
         checkbox = ttk.Checkbutton(frame, text="Enable Discord Bot?", variable=self.discord_enabled, command=self.enable_discord_bot);
         checkbox.grid(row=2, column=0, columnspan=2, pady=10);
 
+        self.start_server();
+
         #Handle the window close event
         self.root.protocol("WM_DELETE_WINDOW", self.quit_application);
 
     def quit_application(self):
+        self.server_thread.join();
         self.root.quit();
         self.root.destroy();
         sys.exit();
@@ -55,6 +61,10 @@ class TelemetryApp:
 
     def show_main_window(self):
         self.root.deiconify(); # Show the main window again
+
+    def start_server(self):
+        self.server_thread = threading.Thread(target=run_server);
+        self.server_thread.start();
 
 def run_gui(car_telemetry_data, participant_data, session_data):
     root = tk.Tk();
