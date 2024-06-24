@@ -5,7 +5,7 @@ from typing import Dict
 
 IP = "127.0.0.1";	# Change IP if needed
 UDP_PORT = 20777;	# Default port for F1 2022
-TIMEOUT = 30;       # Timeout for the socket (in seconds)
+TIMEOUT = 1;       # Timeout for the socket (in seconds)
 
 #   Host and Ports for the discord bot IPC
 IP_discordIPC = "127.0.0.1";

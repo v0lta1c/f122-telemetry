@@ -1,6 +1,7 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import shared
 import json
+import select
 
 class HTTPRequestHandler(BaseHTTPRequestHandler):
     def _set_response(self, status_code=200):
@@ -21,11 +22,24 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
             self._set_response(404);
             self.wfile.write(json.dumps({'error': 'Not Found'}).encode('utf-8'));
 
-def run_server(server_class = HTTPServer, handler_class=HTTPRequestHandler, port=8000):
+class HTTPServerHandler(HTTPServer):
+    def __init__(self, server_address, RequestHandlerClass, stop_event):
+        super().__init__(server_address, RequestHandlerClass);
+        self.stop_event = stop_event;
+
+    def serve_forever(self, poll_interval=0.5):
+        while not self.stop_event.is_set():
+            rlist, _, _ = select.select([self], [], [], poll_interval)
+            if rlist:
+                self.handle_request()
+
+def run_server(stop_event=None):
+    port = 8000;
     server_address = ('', port);
-    httpd = server_class(server_address, handler_class);
-    print(f'Starting httpd server on port {port}...');
+    httpd = HTTPServerHandler(server_address, HTTPRequestHandler, stop_event)
+    print(f'Starting http server on port {port}...');
     httpd.serve_forever(); 
+    print(f'Stopping the http server.......');
 
 if '__name__' == '__main__':
     run_server();
