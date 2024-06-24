@@ -31,6 +31,8 @@ class Telemetry:
         self.pit_status = PitStatusStorage();
         self.current_positions = CurrentDriverPositions();
 
+        self.stop_event = threading.Event();
+
         self.results_printed = 1; # Prevents double printing of the final output on console
     
         # Initialize the log drivers instance
@@ -59,6 +61,8 @@ class Telemetry:
 
     def stop(self):
         self.running = False;
+        self.stop_event.set();
+        self.pit_status_storage.stop();
 
         if self.discord_enabled:
             self.discord_ipc_socket.join_ipc_socket_thread();
@@ -85,10 +89,11 @@ class Telemetry:
         position_timer = None;
         last_data_recv_time = time.time();
 
-        while(self.running):
+        while self.running and not self.stop_event.is_set():
 
             try:
 
+                if self.stop_event.is_set(): return;
                 ready = select.select([self.client], [], [], TIMEOUT);
                 if ready[0]:
 

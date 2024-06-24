@@ -7,13 +7,12 @@ import sys
 from telemetry.Telmetry import Telemetry
 
 class TelemetryGui:
-    def __init__(self, root, discord_enabled, session_data, show_main_window_callback):
+    def __init__(self, root, discord_enabled, show_main_window_callback):
         self.capture_window = tk.Toplevel(root);
         self.capture_window.title("F1 22 Telemetry");
 
         self.show_main_window_callback = show_main_window_callback;
         self.discord_enabled = discord_enabled;
-        self.session_data = session_data;
 
         # Create an instance for telemetry
         self.telemetry = Telemetry();

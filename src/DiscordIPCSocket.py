@@ -7,6 +7,7 @@ from constants import IP_discordIPC, PORT_discordIPC
 class DiscordIPCSocket:
     def __init__(self):
         self.ipc_socket = None;
+        self.stop_event = threading.Event();
 
     def connect_to_ipc(self):
         try: 
@@ -15,7 +16,7 @@ class DiscordIPCSocket:
             print("Connected to the IPC Socket!");
 
             # Keep the connection alive
-            while True:
+            while not self.stop_event.is_set():
                 time.sleep(1);
 
         except ConnectionRefusedError:
@@ -31,6 +32,7 @@ class DiscordIPCSocket:
     
     def join_ipc_socket_thread(self):
         if self.socket_thread  is not None:
+            self.stop_event.set();
             self.socket_thread.join();
     
         # Optionally close the IPC Socket

@@ -20,9 +20,10 @@ class PitStatusChecker:
         self.car_status_data: CarStatusData = car_status_data;
         self.send_ipc_trigger = send_ipc_trigger;
         self.in_session = False;
+        self.stop_event = threading.Event();
 
     def check_pit_status(self, discord_enabled):
-        while True:
+        while not self.stop_event.is_set():
             if self.in_session and self.participant_data is not None:
                 for driver in range(22):
                     current_pit_status = self.laptime_data.get_lapdata_value_from_key(driver)['m_pitStatus']
@@ -54,3 +55,6 @@ class PitStatusChecker:
                                     self.send_ipc_trigger(f'PIT_CHANGE: Driver {driverName} is leaving the pits with {tyreAge} laps old {tyreCompoundName}s.');
                 
                 time.sleep(10);
+
+    def stop(self):
+        self.stop_event.set();

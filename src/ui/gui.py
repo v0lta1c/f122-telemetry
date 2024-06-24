@@ -13,13 +13,9 @@ from server import run_server
 from packets import ParticipantData, CarTelemetry, SessionData
 
 class TelemetryApp:
-    def __init__(self, root, car_telemetry_data: CarTelemetry, participant_data: ParticipantData, session_data: SessionData):
+    def __init__(self, root):
         self.root = root;
         self.root.title("F1 22 Telemetry");
-
-        self.car_telemetry_data = car_telemetry_data;
-        self.participant_data = participant_data;
-        self.session_data = session_data;
 
         self.discord_enabled = tk.IntVar();
 
@@ -42,20 +38,25 @@ class TelemetryApp:
         checkbox = ttk.Checkbutton(frame, text="Enable Discord Bot?", variable=self.discord_enabled, command=self.enable_discord_bot);
         checkbox.grid(row=2, column=0, columnspan=2, pady=10);
 
+        self.server_stop_event = threading.Event();
         self.start_server();
 
         #Handle the window close event
         self.root.protocol("WM_DELETE_WINDOW", self.quit_application);
 
     def quit_application(self):
-        self.server_thread.join();
+
+        self.server_stop_event.set();
+        if self.server_thread:
+            self.server_thread.join();
+        
         self.root.quit();
         self.root.destroy();
         sys.exit();
 
     def start_telemetry(self):
         self.root.withdraw(); # Hide the main window
-        self.capture_window = TelemetryGui(self.root, self.discord_enabled.get(), self.session_data, self.show_main_window);
+        self.capture_window = TelemetryGui(self.root, self.discord_enabled.get(), self.show_main_window);
     def enable_discord_bot(self):
         pass
 
@@ -63,11 +64,11 @@ class TelemetryApp:
         self.root.deiconify(); # Show the main window again
 
     def start_server(self):
-        self.server_thread = threading.Thread(target=run_server);
+        self.server_thread = threading.Thread(target=run_server, args=(self.server_stop_event,), daemon=True);
         self.server_thread.start();
 
-def run_gui(car_telemetry_data, participant_data, session_data):
+def run_gui():
     root = tk.Tk();
-    app = TelemetryApp(root, car_telemetry_data, participant_data, session_data);
+    app = TelemetryApp(root);
     root.mainloop();
 
