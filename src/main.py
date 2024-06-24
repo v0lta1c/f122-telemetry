@@ -167,6 +167,7 @@ def printData(numCars: int) -> None:
         for inner_key, val in lpVal.items():
             if(inner_key == 'm_currentLapNum'):
                 total_laps = val;
+                total_laps = current_positions.get_current_status_for_driver(key)['lap'];
                 print(f'Total laps: {val}');
 
         finalOutput.append([name, position, total_time, best_lap_time, penalties_time, total_laps, num_of_pitstops, result_status]);
@@ -277,7 +278,9 @@ def save_current_positions() -> None:
     for key in participant_data.get_participant_data_list():
         driverName = participant_data.get_participant(key)['m_name'];
         driverPosition = laptime_data.get_lapdata_value_from_key(key)['m_carPosition'];
-        data.append({driverName: driverPosition});
+        currLap = laptime_data.get_lapdata_value_from_key(key)['m_currentLapNum'];
+        data.append({driverName: {"position": driverPosition, "lap": currLap}});
+        current_positions.update_current_driver_positions(key, driverPosition, currLap);
 
     # Save the driver positions to a file
     directory = "logs";
