@@ -117,9 +117,11 @@ class RaceDataPrinter:
 
             #Check whether name is static or dynamic
             if(self.create_static_file_name):
-                fileName = "".join((directory, fName, fileExtension));
+                fileName = "".join((fName, fileExtension));
             else:
-                fileName = "".join((directory, fName,timestr,fileExtension));
+                fileName = "".join((fName,timestr,fileExtension));
+            
+            fileName = os.path.join(directory, fileName);
             
             with open(fileName, 'w') as f:json.dump(data, f, indent=4, separators=(',', ': '), ensure_ascii=False);
 
