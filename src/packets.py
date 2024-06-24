@@ -470,16 +470,17 @@ class CarStatusData:
     
 class CurrentDriverPositions:
     def __init__(self):
-        self.data: Dict [int, int] = {};
+        self.data: Dict [int, Dict[str, Any]] = {};
 
-    def update_current_driver_positions(self, key: int, position: int) -> None:
+    def update_current_driver_positions(self, key: int, position: int, lap: int) -> None:
 
-        self.data = {
-            key: position
+        self.data[key] = {
+            'position': position,
+            'lap': lap
         };
 
-    def get_current_driver_positions(self) -> Dict[int, int]:
+    def get_current_driver_positions(self) -> Dict[int, Dict[str, Any]]:
         return self.data;
 
-    def get_current_status_for_driver(self, key: int) -> int:
-        return self.data.get(key);
+    def get_current_status_for_driver(self, key: int) -> Dict[str, Any]:
+        return self.data.get(key)

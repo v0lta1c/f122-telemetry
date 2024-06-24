@@ -4,14 +4,14 @@ import time
 from typing import List, Dict
 from constants import Track_Names, TrackId, Session_Type_Name, SessionType, createJSONFile, createStaticFileName
 from shared import update_json_dump_file
-from packets import ResultStatus
+from packets import ResultStatus, CurrentDriverPositions
 
 class RaceDataPrinter:
     def __init__(self):
         self.create_JSON_file = createJSONFile;
         self.create_static_file_name = createStaticFileName;
 
-    def print_data(self, numCars: int, final_classification_data, participant_data, laptime_data, car_damage_data, session_data) -> None:
+    def print_data(self, numCars: int, final_classification_data, participant_data, laptime_data, car_damage_data, session_data, current_positions) -> None:
         #First we sort the array based on the car position
         sorted_fcData = sorted(final_classification_data.get_fcDict().items(), key=lambda item: item[1]['m_position']);
         #slice the array based on the number of cars
@@ -87,6 +87,7 @@ class RaceDataPrinter:
             for inner_key, val in lpVal.items():
                 if(inner_key == 'm_currentLapNum'):
                     total_laps = val;
+                    total_laps = current_positions.get_current_status_for_driver(key)['lap'];
                     print(f'Total laps: {val}');
 
             finalOutput.append([name, position, total_time, best_lap_time, penalties_time, total_laps, num_of_pitstops, result_status]);

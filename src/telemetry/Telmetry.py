@@ -31,7 +31,7 @@ class Telemetry:
         self.current_positions = CurrentDriverPositions();
     
         # Initialize the log drivers instance
-        self.log_drivers = LogDrivers(self.participant_data, self.laptime_data);
+        self.log_drivers = LogDrivers(self.participant_data, self.laptime_data, self.current_positions);
 
     def start(self, discord_enabled):
         self.running = True;
@@ -228,7 +228,7 @@ class Telemetry:
 
                             if(resultsPrinted %2 == 0):
                                 printer = RaceDataPrinter();
-                                printer.print_data(numCars, self.finalClassification_data, self.participant_data, self.laptime_data, self.car_damage_data, self.session_data);
+                                printer.print_data(numCars, self.finalClassification_data, self.participant_data, self.laptime_data, self.car_damage_data, self.session_data, self.current_positions);
                                 inSession = False;
                                 position_timer.cancel();
                                 if(self.discord_enabled):

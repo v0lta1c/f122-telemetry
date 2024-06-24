@@ -2,14 +2,15 @@ import threading
 import json
 import os
 
-from packets import ParticipantData, LapTimeData
+from packets import ParticipantData, LapTimeData, CurrentDriverPositions
 from constants import POSITION_SAVE_INTERVAL
 
 class LogDrivers:
 
-    def __init__(self, participant_data, laptime_data):
+    def __init__(self, participant_data, laptime_data, current_positions):
         self.participant_data: ParticipantData = participant_data;
         self.laptime_data: LapTimeData = laptime_data;
+        self.current_positins: CurrentDriverPositions = current_positions;
         self.position_timer = None;
 
     def start_position_timer(self):
@@ -21,7 +22,9 @@ class LogDrivers:
         for key in self.participant_data.get_participant_data_list():
             driver_name = self.participant_data.get_participant(key)['m_name'];
             driver_position = self.laptime_data.get_lapdata_value_from_key(key)['m_carPosition'];
-            driver_data.append({driver_name: driver_position});
+            currLap = self.laptime_data.get_lapdata_value_from_key(key)['m_currentLapNum'];
+            driver_data.append({driver_name: {"position": driver_position, "lap": currLap}});
+            self.current_positions.update_current_driver_positions(key, driver_position, currLap);
 
         directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'logs'))
         os.makedirs(directory, exist_ok=True);
