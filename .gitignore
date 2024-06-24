@@ -7,5 +7,6 @@ src/__pycache__
 src/dist
 src/build
 src/ui/__pycache__
+src/telemetry/__pycache__
 
 f1_22_telemetry.spec
