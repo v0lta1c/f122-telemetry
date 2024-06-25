@@ -40,6 +40,3 @@ def run_server(stop_event=None):
     print(f'Starting http server on port {port}...');
     httpd.serve_forever(); 
     print(f'Stopping the http server.......');
-
-if '__name__' == '__main__':
-    run_server();

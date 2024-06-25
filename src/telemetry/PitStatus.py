@@ -26,6 +26,7 @@ class PitStatusChecker:
         while not self.stop_event.is_set():
             if self.in_session and self.participant_data is not None:
                 for driver in range(22):
+                    if self.laptime_data.get_lapdata_value_from_key(driver) is None or self.car_status_data.get_car_status_data_from_key(driver) is None: continue;
                     current_pit_status = self.laptime_data.get_lapdata_value_from_key(driver)['m_pitStatus']
 
                     self.pit_status.update_pit_status(driver, current_pit_status)

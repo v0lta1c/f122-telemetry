@@ -7,7 +7,7 @@ import threading
 if __name__ == '__main__':
 
     # Start the gui thread here
-    gui_thread = threading.Thread(target=gui.run_gui, daemon=True);
+    gui_thread = threading.Thread(target=gui.run_gui, name="Main Window", daemon=True);
     gui_thread.start();
 
     gui_thread.join();

@@ -31,7 +31,7 @@ class ParticipantData:
             'm_aiControlled' : m_aiControlled,
             'm_driverID' : m_driverID,
             'm_networkID' : m_networkID,
-            'm_teamID' : m_teamID,
+            'm_teamId' : m_teamID,
             'm_myTeam' : m_myTeam,
             'm_raceNumber' : m_raceNumber,
             'm_nationality' : m_nationality,

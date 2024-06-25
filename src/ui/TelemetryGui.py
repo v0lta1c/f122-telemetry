@@ -1,9 +1,10 @@
 import tkinter as tk
 from tkinter import ttk
 import socket
-import threading
 import sys
+from typing import Dict, Any
 
+from constants import *
 from telemetry.Telmetry import Telemetry
 
 class TelemetryGui:
@@ -14,53 +15,77 @@ class TelemetryGui:
         self.show_main_window_callback = show_main_window_callback;
         self.discord_enabled = discord_enabled;
 
-        # Create an instance for telemetry
-        self.telemetry = Telemetry();
+        self.session_type = tk.StringVar();
+        self.track_name = tk.StringVar();
 
         # Display session type and track name
-        session_label = ttk.Label(self.capture_window, text=f"Session Type:");
+        self.session_type.set("Session Type: Session Not Detected");
+        self.track_name.set("Track Name: Session Not Detected");
+
+        session_label = ttk.Label(self.capture_window, textvariable=self.session_type);
         session_label.grid(row=0, column=0, columnspan=2, pady=10);
 
-        track_label = ttk.Label(self.capture_window, text=f"Track Name:");
+        track_label = ttk.Label(self.capture_window, textvariable=self.track_name);
         track_label.grid(row=1, column=0, columnspan=2, pady=10);
 
-        # Create the table headers
-        headers = ["Player ID", "Name", "Position", "Lap Time", "Pit"];
-        for col, header in enumerate(headers):
-            header_label = ttk.Label(self.capture_window, text=header)
-            header_label.grid(row=2, column=col, padx=5, pady=5);
-
-        self.table_rows = [];
+        self.header_frame = ttk.Frame(self.capture_window);
+        self.header_frame.grid(row=2, column=0, columnspan=2, padx=5, pady=10);
 
         #Create a frame for the table rows
         self.table_frame = ttk.Frame(self.capture_window);
-        self.table_frame.grid(row=3, column=0, columnspan=5, pady=10);
+        self.table_frame.grid(row=3, column=0, columnspan=2, padx=5, pady=10);
+
+        self.header_labels = [];
+        self.table_labels = [];
+
+        # Add a detailed information button
+        self.detailed_information_button = ttk.Button(self.capture_window, text="Detailed Information");
+        self.detailed_information_button.grid(row=4, column=0, columnspan=2, pady=10);
 
         # Add a stop Capture button
         stop_button = ttk.Button(self.capture_window, text="Stop Capture", command=self.stop_capture);
-        stop_button.grid(row=4, column=0, columnspan=2, pady=10);
-    
-        # Start the socket listener for telemetry data
-        self.telemetry.start(discord_enabled=self.discord_enabled);
+        stop_button.grid(row=4, column=2, columnspan=2, pady=10);
 
         # Handle the window close event
         self.capture_window.protocol("WM_DELETE_WINDOW", self.quit_application);
+    
+        # Create an instance for telemetry
+        self.telemetry = Telemetry(real_time_callback=self.update_real_time_summary);
+        self.telemetry.start(discord_enabled=self.discord_enabled);
 
-    def update_table(self, data):
+    # Keeps the main table of the GUI updated with real time
+    def update_real_time_summary(self, data_dict: Dict[int, Dict[str, Any]]):
 
-        # First we empty the rows table
-        for row in self.table_rows:
-            for widget in row:
-                widget.destroy();
-        self.table_rows.clear();
+        if data_dict is None: return;
+        if len(data_dict) < 1: return;
+    
+        if not self.header_labels:
+            headers = list(next(iter(data_dict.values())).keys());
+            self.initialize_summary_table_widgets(headers);
+        
+        for row, (driver_id, driver_data) in enumerate(data_dict.items()):
+            for col, value in enumerate(driver_data.values()):
+                self.table_labels[row][col].config(text=value);
+    
+        self.session_type.set(Session_Type_Name.get(SessionType(self.telemetry.session_data.get_session_data_from_key("m_sessionType")).value));
+        self.track_name.set(Track_Names.get(TrackId(self.telemetry.session_data.get_session_data_from_key("m_trackId")).value));
 
-        for i, player in enumerate(data):
-            player_id, name, position, laptime, pit = player;
-            row_widgets = [];
-            for col, value in enumerate(player):
-                label = ttk.Label(self.table_frame, text=value);
-                label.grid(row=1, column=col, padx=5, pady=5);
-                row_widgets.append(row_widgets);
+    def initialize_summary_table_widgets(self, headers):
+
+        # First we create the headers
+        for col, header in enumerate(headers):
+            header_label = ttk.Label(self.header_frame, text=header, width=15, anchor=tk.CENTER);
+            header_label.grid(row=0, column=col, padx=5, pady=5);
+            self.header_labels.append(header_label);
+    
+        # Now we create the rows with empty labels
+        for row in range(self.telemetry.total_num_cars):
+            row_labels = [];
+            for col in range(len(headers)):
+                label = ttk.Label(self.table_frame, text="", width=15, anchor=tk.CENTER);
+                label.grid(row=row + 1, column=col, padx=5, pady=5);
+                row_labels.append(label);
+            self.table_labels.append(row_labels);
 
     def stop_capture(self):
         self.telemetry.stop();
