@@ -57,6 +57,7 @@ class TelemetryApp:
     def start_telemetry(self):
         self.root.withdraw(); # Hide the main window
         self.capture_window = TelemetryGui(self.root, self.discord_enabled.get(), self.show_main_window);
+    
     def enable_discord_bot(self):
         pass
 
@@ -64,7 +65,7 @@ class TelemetryApp:
         self.root.deiconify(); # Show the main window again
 
     def start_server(self):
-        self.server_thread = threading.Thread(target=run_server, args=(self.server_stop_event,), daemon=True);
+        self.server_thread = threading.Thread(target=run_server, args=(self.server_stop_event,), name="HTTP API Server",daemon=True);
         self.server_thread.start();
 
 def run_gui():
