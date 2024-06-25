@@ -9,4 +9,4 @@ src/build
 src/ui/__pycache__
 src/telemetry/__pycache__
 
-f1_22_telemetry.spec
+src/f1_22_telemetry.spec
