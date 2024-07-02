@@ -7,8 +7,8 @@ This application includes:
 3. Possible discord bot integration using the API endpoint.
 
 **Pre-requisite:**
-Python 3 installed on your system
-Qt graphical library for python
+- Python 3 installed on your system.
+- Qt graphical library for python (https://doc.qt.io/qtforpython-6/index.html)
 
 To install Qt: 
 - Open your terminal
