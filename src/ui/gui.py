@@ -1,75 +1,72 @@
-import tkinter as tk
-from tkinter import ttk
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.figure import Figure
-import matplotlib.animation as animation
-import time
 import sys
 import threading
+
+from PySide6 import  QtGui
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QLabel, QCheckBox
+from PySide6.QtCore import Slot
 
 from ui.TelemetryGui import TelemetryGui
 from server import run_server
 
 from packets import ParticipantData, CarTelemetry, SessionData
 
-class TelemetryApp:
-    def __init__(self, root):
-        self.root = root;
-        self.root.title("F1 22 Telemetry");
+class TelemetryApp(QWidget):
+    def __init__(self):
+        super().__init__();
+        self.setWindowTitle("F1 22 Telemetry");
 
-        self.discord_enabled = tk.IntVar();
+        self.discordEnabled = False;    # To check whether discord bot is to be added or not
 
-        # Create a frame for the window content
-        frame = ttk.Frame(root, padding="10");
-        frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S));
+        # Create the widgets here
+        self.label = QLabel('F1 22 Telemetry', self);
+        self.start_button = QPushButton('Start', self);
+        self.quit_button = QPushButton('Quit', self);
+        self.checkbox = QCheckBox('Enable Discord Bot?', self);
 
-        # Add a label for "f1 22 telemetry"
-        label = ttk.Label(frame, text="F1 22 Telemetry");
-        label.grid(row=0, column=0, columnspan=2);
+        # Set their layout
+        layout = QVBoxLayout(self);
+        layout.addWidget(self.label);
+        layout.addWidget(self.start_button);
+        layout.addWidget(self.quit_button);
+        layout.addWidget(self.checkbox);
+        self.setLayout(layout);
 
-        # Add Start and Quit buttons
-        start_button = ttk.Button(frame, text="Start", command=self.start_telemetry);
-        start_button.grid(row=1, column=0, pady=10);
-
-        quit_button = ttk.Button(frame, text="Quit", command=self.quit_application);
-        quit_button.grid(row=1, column=1, pady=10);
-
-        # Add a checkbox for the discord runtime argument
-        checkbox = ttk.Checkbutton(frame, text="Enable Discord Bot?", variable=self.discord_enabled, command=self.enable_discord_bot);
-        checkbox.grid(row=2, column=0, columnspan=2, pady=10);
-
+        # Connect signals
+        self.start_button.clicked.connect(self.start_telemetry);
+        self.quit_button.clicked.connect(self.quit_application);
+        self.checkbox.stateChanged.connect(self.enable_discord_bot);
+    
         self.server_stop_event = threading.Event();
         self.start_server();
 
-        #Handle the window close event
-        self.root.protocol("WM_DELETE_WINDOW", self.quit_application);
-
+    @Slot()
     def quit_application(self):
 
         self.server_stop_event.set();
         if self.server_thread:
             self.server_thread.join();
         
-        self.root.quit();
-        self.root.destroy();
-        sys.exit();
+        self.close();
 
+    @Slot()
     def start_telemetry(self):
-        self.root.withdraw(); # Hide the main window
-        self.capture_window = TelemetryGui(self.root, self.discord_enabled.get(), self.show_main_window);
+        self.hide(); # Hide the main window
+        self.capture_window = TelemetryGui(discord_enabled=self.discordEnabled, show_main_window_callback=self.show_main_window);
+        self.capture_window.show();
     
+    @Slot()
     def enable_discord_bot(self):
-        pass
+        self.discordEnabled = self.checkbox.isChecked();
 
     def show_main_window(self):
-        self.root.deiconify(); # Show the main window again
+        self.show();
 
     def start_server(self):
         self.server_thread = threading.Thread(target=run_server, args=(self.server_stop_event,), name="HTTP API Server",daemon=True);
         self.server_thread.start();
 
 def run_gui():
-    root = tk.Tk();
-    app = TelemetryApp(root);
-    root.mainloop();
-
+    app = QApplication(sys.argv);
+    ex = TelemetryApp();
+    ex.show();
+    sys.exit(app.exec());
