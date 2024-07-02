@@ -3,6 +3,7 @@ import threading
 import time
 import select
 import struct
+import sys
 from typing import List, Dict, Any, Callable
 
 from constants import *
@@ -41,7 +42,19 @@ class Telemetry:
         self.total_num_cars = 0;
         self.current_num_cars = 0;
         self.client = None;
-    
+     
+        # Variables to keep track of previous and current lap numbers
+        # Used to generate a pulse on lap change per driver
+        self.lap_number_previous: List[int] = [0] * 22;
+        self.lap_number_current: List[int] = [0] * 22;
+
+        # Variables to calculate the times of the drivers
+        self.times_till_last_lap: List[int] = [0] *22; # Stores the cumulative time till the last lap
+        self.times_best_lap: List[int] = [99999999] * 22;    # Stores the best lap time
+        # Stores the total time of the driver but only supposed to be used inside the method that calculates the total time
+        # It is NOT reliable otherwise
+        self.times_total: List[int] = [0] * 22;   
+        
         # Initialize the log drivers instance
         self.log_drivers = LogDrivers(self.participant_data, self.laptime_data, self.current_positions);
     
@@ -170,6 +183,9 @@ class Telemetry:
                                 lapdataStr = struct.unpack(p_lapDataPacketString, data[43*i+24:43*i+67]);
                                 self.laptime_data.add_laptime_data(i, lapdataStr);
 
+                            # Check if the lap changed and do the necessary logic in that case
+                            self.on_lap_change();
+
                         case 3: #Event Data Packet
                             eventDataStr = [];
                             eventType = struct.unpack(p_eventTypeString, data[24:28]);
@@ -216,7 +232,6 @@ class Telemetry:
                                 #Struct size: 14 bytes
                                 participantStr = struct.unpack(p_participantsPacketString, data[56*i+25:56*i+39]);
                                 self.participant_data.add_participant(i, participantStr);
-                                #print(participant_data.get_participant_data_list().get(i).get('m_driverID'));
 
                             #This code block makes sure that the participant list stays updated throughout the whole race
                             #If participant data is smaller than the data in cache then replace the participant data with the cache
@@ -329,15 +344,19 @@ class Telemetry:
         if self.running:
             driver_dict = self.parse_real_time_summary();
             self.real_time_callback(driver_dict);
+            active_threads = threading.enumerate();
+            for threads in active_threads:
+                print(f'Thread Name: {threads.name}');
             self.schedule_update();
 
     def parse_real_time_summary(self) -> Dict[int, Dict[str, Any]]:
 
         # The data is processed and packed into a list.
-        # List: [Participants: {Position, Name, Constructor, Interval, Best Lap, TyreCompound, Pitstops, Penalties}]
+        # List: [Participants: {Position, Name, Constructor, Interval, Best Lap, Lap, TyreCompound, Pitstops, Penalties}]
 
         # First store everything about a driver inside a list
         driver_list = [];
+        session_type = self.session_data.get_session_data_from_key("m_sessionType"); 
 
         for driver_id in range(self.total_num_cars):        
 
@@ -348,13 +367,24 @@ class Telemetry:
             position = self.laptime_data.get_lapdata_value_from_key(driver_id)['m_carPosition'];
             name = self.participant_data.get_participant(driver_id)['m_name'];
             constructor = TeamNames.get(TeamId(self.participant_data.get_participant(driver_id)['m_teamId']).value);
-            interval = 0;
-            best_lap = 0;
+            current_lap = self.lap_number_current[driver_id];
+            if position == 1:
+                interval = "Interval";
+            else:
+                interval = self.format_time_to_str(self.calculate_interval(driver_id));
+                if interval == 1:
+                    interval = "+1 Lap";
+                elif interval == 2:
+                    interval = ">2 Lap";
+            if current_lap == 1:
+                best_lap = self.format_time_to_str(0);
+            else:
+                best_lap = self.format_time_to_str(self.times_best_lap[driver_id]);
             tyre_compound = TyreCompoundNames.get(TyreCompound(self.car_status_data.get_car_status_data_from_key(driver_id)['m_visualTyreCompound']).value);
             pitstops = self.laptime_data.get_lapdata_value_from_key(driver_id)['m_numPitStops'];
             penalties = self.laptime_data.get_lapdata_value_from_key(driver_id)['m_penalties'];
         
-            row = [position, name, constructor, interval, tyre_compound, pitstops, penalties];
+            row = [position, name, constructor, interval, best_lap, current_lap, tyre_compound, pitstops, penalties];
             driver_list.append(row);
 
         # Sort the list based on the position
@@ -366,32 +396,118 @@ class Telemetry:
             'Name': driver[1],
             'Constructor': driver[2],
             'Interval': driver[3],
-            'TyreCompound': driver[4],
-            'Pitstops': driver[5],
-            'Penalties': driver[6]
+            'Best Lap': driver[4],
+            'Lap:': driver[5],
+            'Tyre': driver[6],
+            'Pitstops': driver[7],
+            'Penalties': driver[8]
         } for i, driver in enumerate(driver_list)}
 
         return driver_dict 
 
-    def calculate_interval(self, driver_id: int) -> str:
+    def calculate_interval(self, driver_id: int) -> int:
 
         interval = 0;
         #First get the position of the driver
         driver_position = self.laptime_data.get_lapdata_value_from_key(driver_id)['m_carPosition'];
         
-        if driver_position == 1:
-            interval = 0;
+        session_type = self.session_data.get_session_data_from_key("m_sessionType");
+
+        # Check if the session is a race
+        if session_type == 10 or session_type == 11 or session_type == 12:
+
+            # Check if the driver is first
+            if driver_position == 1:
+                interval = 0;
+            else:
+                # Otherwise calculate the interval based on best lap of the driver ahead
+
+                for faster_driver in range(self.total_num_cars):
+                    # Check for the driver ahead of our current driver
+                    if self.laptime_data.get_lapdata_value_from_key(faster_driver)['m_carPosition'] == driver_position-1:
+
+                        # Get the total distances of both cars
+                        driver_total_distance = self.laptime_data.get_lapdata_value_from_key(driver_id)['m_totalDistance'];
+                        driver_faster_total_distance = self.laptime_data.get_lapdata_value_from_key(faster_driver)['m_totalDistance'];
+
+                        driver_current_laptime = self.laptime_data.get_lapdata_value_from_key(driver_id)['m_currentLapTimeInMS'];
+                        driver_faster_current_laptime = self.laptime_data.get_lapdata_value_from_key(faster_driver)['m_currentLapTimeInMS'];
+                        driver_faster_last_laptime = self.laptime_data.get_lapdata_value_from_key(faster_driver)['m_lastLapTimeInMS'];
+
+                        lap_diff = self.lap_number_current[faster_driver] - self.lap_number_current[driver_id];
+                        total_lap_distance = self.session_data.get_session_data_from_key('m_trackLength');
+
+                        if lap_diff == 0 and (self.lap_number_current[driver_id] == 1 and self.lap_number_current[faster_driver] == 1):
+                            interval = ((driver_faster_total_distance - driver_total_distance) / total_lap_distance) * driver_faster_current_laptime;
+                        elif lap_diff == 1:
+                            interval = (driver_faster_current_laptime + driver_faster_last_laptime) - driver_current_laptime;
+                        elif lap_diff == 0:
+                            interval = driver_faster_current_laptime - driver_current_laptime;
+                        elif lap_diff == 2:
+                            interval = 1;
+                        else:
+                            interval = 2;
+
+                        #if lap_diff > 0:
+                        #    interval = (lap_diff * driver_faster_last_laptime) +  (((driver_faster_total_distance - driver_total_distance) / total_lap_distance) * driver_faster_current_laptime);
+                        #else:
+                        #    interval = ((driver_faster_total_distance - driver_total_distance) / total_lap_distance) * driver_faster_current_laptime;
         else:
-            for i in range(self.total_num_cars):
-                if self.laptime_data.get_lapdata_value_from_key(i)['m_carPosition'] == driver_position-1:
-                    car_ahead_interval = self.laptime_data.get_lapdata_value_from_key(i)['m_lastLapTimeInMS'];
+            # If it's not a race then calculate intervals based on the best lap times
+            
+            # If the driver is first then return their best lap
+            if driver_position == 1:
+                interval = self.times_best_lap[driver_id];
+            else:
+                # Otherwise calculate the interval based on best lap of the driver ahead
+                for faster_driver in range(self.total_num_cars):
+                    # Check for the driver ahead of our current driver
+                    if self.laptime_data.get_lapdata_value_from_key(faster_driver)['m_carPosition'] == driver_position-1:
+                        interval = self.times_best_lap[driver_id] - self.times_best_lap[faster_driver];
+        
+        # Return the interval
+        if interval < 0: interval = 0;
+        return interval
+    
+    # Returns the total overall lap time of driver
+    def get_current_total_time(self, driver_id: int) -> int:
+
+        current_time = self.laptime_data.get_lapdata_value_from_key(driver_id)['m_currentLapTimeInMS'];
+        return self.times_till_last_lap[driver_id] + current_time
 
     # Converts time (from ms) into a formatted string 
     # Output : Minutes:Seconds:Milliseconds
-    def format_time_to_str(val: int) -> str:
+    def format_time_to_str(self, val: int) -> str:
         total_seconds = val / 1000;
         minutes, seconds = divmod(total_seconds, 60);
 
         seconds_in_int = int(seconds);
         ms = int((seconds-seconds_in_int) * 1000);
-        return f"{int(minutes)}:{seconds_in_int:02d}:{ms:04d}";
+        return f"{int(minutes)}:{seconds_in_int:02d}:{ms}"
+
+    # Method to check for lap changes
+    def on_lap_change(self):
+
+        lap_changed: bool = False;
+        if self.laptime_data is None: return
+        for driver_id in range(self.total_num_cars):
+            current_lap = self.laptime_data.get_lapdata_value_from_key(driver_id)['m_currentLapNum'];
+
+            if self.lap_number_current[driver_id] != current_lap:
+                self.lap_number_current[driver_id] = current_lap;
+                lap_changed = True;
+
+            # On lap change, do whatever you want here
+            if lap_changed:
+    
+                last_lap_time = self.laptime_data.get_lapdata_value_from_key(driver_id)['m_lastLapTimeInMS'];
+                # Update the time until the last lap for the driver
+                self.times_till_last_lap[driver_id] += last_lap_time;
+
+                # Check if it was the best lap of the driver
+                if last_lap_time < self.times_best_lap[driver_id] and self.lap_number_current[driver_id] >= 2:
+                    self.times_best_lap[driver_id] = last_lap_time;
+
+            # Reset the flag
+            lap_changed = False;
+                
