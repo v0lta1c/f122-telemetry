@@ -8,6 +8,14 @@ This application includes:
 
 **Pre-requisite:**
 Python 3 installed on your system
+Qt graphical library for python
+
+To install Qt: 
+- Open your terminal
+- run: `pip install pyside6`
+- and you're set!
+
+If you want to run the whole application in a virtual environment then i'd suggest installing pyside in that same environment as well.
 
 To run the application:
 - Open your terminal
@@ -125,7 +133,7 @@ I do have some plans to add more functionality and ease of use for the software.
 
 Planned:
 - [ ] Improve code readability by adding comments/restructuring some code etc.
-- [ ] Add information about player assists checker in the parser and the bot script socket IPC.
+- [ ] Add more features to the GUI like graghs, player lap history etc.
 
 If you have any ideas of your own which do not expand the scope of the application by a big margin please let me know!
 
