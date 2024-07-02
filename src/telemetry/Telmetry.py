@@ -35,7 +35,6 @@ class Telemetry:
 
         self.stop_event = threading.Event();
         self.real_time_callback = real_time_callback;
-        self.update_timer = None;
 
         self.results_printed = 1; # Prevents double printing of the final output on console
         # Variables to track how many cars are still present in the session
@@ -79,8 +78,6 @@ class Telemetry:
         if self.discord_enabled:
             self.discord_ipc_socket.start_ipc_socket_thread();
     
-        # Start the update timer
-        self.schedule_update();
         self.log_drivers.start_position_timer();
 
     def stop(self):
@@ -103,10 +100,6 @@ class Telemetry:
     
         if self.pit_status_thread.is_alive():
             self.pit_status_thread.join();
-    
-        # Stop the timer
-        if hasattr(self, 'update_timer') and self.update_timer:
-            self.update_timer.cancel()
 
     def socket_listener(self):
 
@@ -282,7 +275,7 @@ class Telemetry:
 
                             if(self.results_printed %2 == 0):
                                 printer = RaceDataPrinter();
-                                printer.print_data(numCars, self.finalClassification_data, self.participant_data, self.laptime_data, self.car_damage_data, self.session_data, self.current_positions);
+                                printer.print_data(self.total_num_cars, self.finalClassification_data, self.participant_data, self.laptime_data, self.car_damage_data, self.session_data, self.current_positions);
                                 inSession = False;
                                 if position_timer is not None:
                                     position_timer.cancel();
@@ -332,22 +325,13 @@ class Telemetry:
         if self.discord_enabled:
             self.discord_ipc_socket.send_ipc_trigger(message);
     
-    def schedule_update(self):
-        if self.running: 
-            if hasattr(self, 'update_timer') and self.update_timer:
-                self.update_timer.cancel();
-            
-        self.update_timer = threading.Timer(5.0, self.update_real_time_summary);
-        self.update_timer.start();
-    
-    def update_real_time_summary(self):
+    def get_latest_data(self):
         if self.running:
             driver_dict = self.parse_real_time_summary();
-            self.real_time_callback(driver_dict);
-            active_threads = threading.enumerate();
-            for threads in active_threads:
-                print(f'Thread Name: {threads.name}');
-            self.schedule_update();
+            return driver_dict;
+            #active_threads = threading.enumerate();
+            #for threads in active_threads:
+            #    print(f'Thread Name: {threads.name}');
 
     def parse_real_time_summary(self) -> Dict[int, Dict[str, Any]]:
 
