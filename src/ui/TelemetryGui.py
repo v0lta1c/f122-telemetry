@@ -3,9 +3,11 @@ from typing import Dict, Any
 
 from PySide6 import QtCore
 from PySide6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget, QGridLayout, QFrame
+from PySide6.QtGui import QFontDatabase, QFont
 
-from constants import Session_Type_Name, SessionType, Track_Names, TrackId
+from constants import Session_Type_Name, SessionType, Track_Names, TrackId, FONT_PATH
 from telemetry.Telmetry import Telemetry
+from ui.components.ClickableLabel import ClickableLabel
 
 class TelemetryGui(QWidget):
     def __init__(self, parent=None, discord_enabled=False, show_main_window_callback=None):
@@ -14,11 +16,21 @@ class TelemetryGui(QWidget):
         self.show_main_window_callback = show_main_window_callback;
         self.discord_enabled = discord_enabled;
 
+        font_id = QFontDatabase.addApplicationFont(FONT_PATH);
+        if font_id != -1:
+            font_family = QFontDatabase.applicationFontFamilies(font_id)[0];
+            self.custom_font = QFont(font_family);
+        else:
+            print("Failed to load the custom font");
+            self.custom_font = self.font(); # Revert to original font
+
         self.session_type = QLabel("Session Type: Session Not Detected");
         self.track_name = QLabel("Track Name: Session Not Detected");
 
         self.session_type.setAlignment(QtCore.Qt.AlignCenter);
+        self.session_type.setFont(self.custom_font);
         self.track_name.setAlignment(QtCore.Qt.AlignCenter);
+        self.track_name.setFont(self.custom_font);
 
         self.header_frame = QFrame();
         self.header_layout = QGridLayout(self.header_frame);
@@ -35,6 +47,9 @@ class TelemetryGui(QWidget):
         self.stop_capture_button = QPushButton("Stop Capture");
         self.stop_capture_button.clicked.connect(self.stop_capture);
 
+        self.detailed_information_button.setFont(self.custom_font);
+        self.stop_capture_button.setFont(self.custom_font);
+
         main_layout = QVBoxLayout(self);
         main_layout.addWidget(self.session_type);
         main_layout.addWidget(self.track_name);
@@ -49,18 +64,20 @@ class TelemetryGui(QWidget):
     
         self.initialize_summary_table_widgets([]);
 
-        # Initialize and start a timer to call update_gui every 2 seconds
+        # Initialize and start a timer to call update_gui every 5 seconds
         self.timer = QtCore.QTimer(self);
         self.timer.timeout.connect(self.update_gui);
-        self.timer.start(2000);
+        self.timer.start(5000);
 
         self.show();
 
+    # Updates the gui at a fixed interval with the new inforation from the telemetry
     def update_gui(self):
 
-        driver_dict = self.telemetry.get_latest_data();
-        if driver_dict is not None:
-            self.update_real_time_summary(driver_dict);
+        if(self.telemetry.inSession and self.telemetry.running):
+            driver_dict = self.telemetry.get_latest_summary_data(); # Get the summary data in a dict from telemetry
+            if driver_dict is not None:
+                self.update_real_time_summary(driver_dict); # Update the summary
 
     # Keeps the main table of the GUI updated with real time
     def update_real_time_summary(self, data_dict: Dict[int, Dict[str, Any]]):
@@ -68,10 +85,12 @@ class TelemetryGui(QWidget):
         if data_dict is None: return;
         if len(data_dict) < 1: return;
     
+        # Initialize the headers if they haven't been created
         if not self.header_labels:
             headers = list(next(iter(data_dict.values())).keys());
             self.initialize_summary_table_widgets(headers);
         
+        # Generate the rows for the table based on available total cars
         for row, (driver_id, driver_data) in enumerate(data_dict.items()):
             # Ensure there are enough rows in the table
             for col, value in enumerate(driver_data.values()):
@@ -103,6 +122,7 @@ class TelemetryGui(QWidget):
         for col, header in enumerate(headers):
             header_label = QLabel(header);
             header_label.setAlignment(QtCore.Qt.AlignCenter);
+            header_label.setFont(self.custom_font);
             self.header_layout.addWidget(header_label, 0, col);
 
             # Calculate width based on header text length
@@ -111,6 +131,7 @@ class TelemetryGui(QWidget):
 
             # Set column minimum width for headers
             self.header_layout.setColumnMinimumWidth(col, max_header_width);
+            #header_label.setToolTip("Hallo, ich bin text");
 
             self.header_labels.append(header_label);
     
@@ -120,6 +141,7 @@ class TelemetryGui(QWidget):
             for col in range(len(headers)):
                 label = QLabel("");
                 label.setAlignment(QtCore.Qt.AlignCenter);
+                label.setFont(self.custom_font);
                 self.table_layout.addWidget(label, row, col);
                 row_labels.append(label);
             self.table_labels.append(row_labels);
@@ -127,6 +149,11 @@ class TelemetryGui(QWidget):
             # Calculate width based on sample data
             sample_data_width = len("Sample Data") * 8;
             max_cell_width = max(max_cell_width, sample_data_width);
+        
+            #label.setToolTip("Kilkkaa tästää!");
+        
+            # Connect the signal from the clickable label
+            #label.clicked.connect(self.load_driver_history_window);
 
         # Set column minimum width for table cells
         for col in range(len(headers)):
@@ -134,12 +161,20 @@ class TelemetryGui(QWidget):
             self.table_layout.setColumnMinimumWidth(col, max_cell_width);
     
     @QtCore.Slot()
+    def load_driver_history_window(self):
+        pass
+
+    # Stop capturing the telemetry
+    # TODO: Add this option to an API endpoint
+    @QtCore.Slot()
     def stop_capture(self):
         self.telemetry.stop();
         self.close();
         print("Stop Capture");
+        # Transfer control to the main window
         self.show_main_window_callback();
     
+    # Close the Application and exit
     def quit_application(self):
         self.stop_capture();
         sys.exit();

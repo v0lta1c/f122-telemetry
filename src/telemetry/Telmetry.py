@@ -19,6 +19,7 @@ class Telemetry:
         self.running = False;
         self.discord_enabled = False; # Variable that checks the discord integration
         self.discord_ipc_socket = DiscordIPCSocket();
+        self.inSession = False;
     
         # Initialize all the packets 
         self.participant_data = ParticipantData();
@@ -126,6 +127,7 @@ class Telemetry:
                     last_data_recv_time = time.time();
 
                     self.pit_status_storage.in_session = True;
+                    self.inSession = True;
 
                     #   Separate the header
                     dataHeader = data[0:24]; #Header size: 24 bytes
@@ -310,6 +312,7 @@ class Telemetry:
 
                     # Set the in_session variable to false
                     self.pit_status_storage.in_session = False;
+                    self.inSession = False;
                     # This piece of code cancels the current driver position timer on timeout
                     current_time = time.time();
                     if current_time - last_data_recv_time >= TIMEOUT:
@@ -325,14 +328,14 @@ class Telemetry:
         if self.discord_enabled:
             self.discord_ipc_socket.send_ipc_trigger(message);
     
-    def get_latest_data(self):
+    # Return a dict to the gui with updated summary table data
+    def get_latest_summary_data(self):
         if self.running:
             driver_dict = self.parse_real_time_summary();
             return driver_dict;
-            #active_threads = threading.enumerate();
-            #for threads in active_threads:
-            #    print(f'Thread Name: {threads.name}');
 
+    # Called from the function responsible to update the gui
+    # Parses the current stream of data into a usable dictionary
     def parse_real_time_summary(self) -> Dict[int, Dict[str, Any]]:
 
         # The data is processed and packed into a list.
@@ -389,6 +392,8 @@ class Telemetry:
 
         return driver_dict 
 
+    # This function calculates the time interval between two drivers
+    # Always calculates the interval based on the driver ahead
     def calculate_interval(self, driver_id: int) -> int:
 
         interval = 0;
@@ -452,12 +457,6 @@ class Telemetry:
         # Return the interval
         if interval < 0: interval = 0;
         return interval
-    
-    # Returns the total overall lap time of driver
-    def get_current_total_time(self, driver_id: int) -> int:
-
-        current_time = self.laptime_data.get_lapdata_value_from_key(driver_id)['m_currentLapTimeInMS'];
-        return self.times_till_last_lap[driver_id] + current_time
 
     # Converts time (from ms) into a formatted string 
     # Output : Minutes:Seconds:Milliseconds

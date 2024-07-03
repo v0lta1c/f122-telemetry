@@ -1,5 +1,6 @@
 ## Configuration file for the f1-telemetry.py
 
+import os
 from enum import Enum
 from typing import Dict
 
@@ -10,6 +11,12 @@ TIMEOUT = 1;       # Timeout for the socket (in seconds)
 #   Host and Ports for the discord bot IPC
 IP_discordIPC = "127.0.0.1";
 PORT_discordIPC = 20002;
+
+# Using Ubuntu font for the gui
+# Rights to the font belongs to Ubuntu
+font = 'Ubuntu-Regular.ttf';
+fonts_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'font'));
+FONT_PATH = os.path.join(fonts_dir, font);
 
 #   Config params
 createJSONFile = True;
