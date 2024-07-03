@@ -1,4 +1,7 @@
 logs/
+dist/
+build/
+F1_22_Telemetry.spec
 .vscode/
 
 src/logs
