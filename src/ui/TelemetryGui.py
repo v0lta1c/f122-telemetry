@@ -8,6 +8,7 @@ from PySide6.QtGui import QFontDatabase, QFont
 from constants import Session_Type_Name, SessionType, Track_Names, TrackId, FONT_PATH
 from telemetry.Telmetry import Telemetry
 from ui.DriverHistoryGui import DriverHistoryGui
+from ui.CarHistoryGui import CarHistoryGui
 from ui.components.ClickableLabel import ClickableLabel
 
 class TelemetryGui(QWidget):
@@ -67,8 +68,8 @@ class TelemetryGui(QWidget):
 
         # Text for dropdown menu in the driver summary table
         self.driver_context_menu = {
-            "Show Race History": self.printRaceHistory,
-            "Show Pit and Tyre History": self.printPitTyreHistory
+            "Show Race Times History": self.printRaceTimesHistory,
+            "Show Car History": self.printCarHistory
         };
         self.isSessionStarting = False;
     
@@ -77,6 +78,7 @@ class TelemetryGui(QWidget):
         # Add a flag to make sure the handle window event is fired only once
         self.isDriverWindowOpen = False;
         self.openDriverWindows = {};
+        self.openCarWindows = {};
 
         self.initialize_summary_table_widgets([]);
 
@@ -177,7 +179,7 @@ class TelemetryGui(QWidget):
             self.header_layout.setColumnMinimumWidth(col, max_header_width);
             self.table_layout.setColumnMinimumWidth(col, max_cell_width);
 
-    def printRaceHistory(self, driver_position: int):
+    def printRaceTimesHistory(self, driver_position: int):
         driver_id = None;
         name = None;
 
@@ -190,10 +192,23 @@ class TelemetryGui(QWidget):
         if driver_id is not None:
             driver_data = self.telemetry.driverSummary.getDriverSummary(driver_id);
             if driver_id not in self.openDriverWindows:
-                self.show_driver_info(driver_id, name, driver_data);
+                self.showDriverRaceTimes(driver_id, name, driver_data);
 
-    def printPitTyreHistory(self, driver_position: int):
-        pass
+    def printCarHistory(self, driver_position: int):
+        driver_id = None;
+        name = None;
+    
+        for id in range(self.telemetry.total_num_cars):
+            if self.telemetry.laptime_data.get_lapdata_value_from_key(id)['m_carPosition'] == driver_position + 1:
+                driver_id = id;
+                name = self.telemetry.getDriverNameFromId(driver_id);
+                break;
+        
+        if driver_id is not None:
+            car_data = self.telemetry.carHistorySummary.getCarHistorySummary(driver_id);
+            if driver_id not in self.openCarWindows:
+                self.showCarDataSummary(driver_id, name, car_data);
+
 
     @QtCore.Slot()
     def handleLabelRightClick(self):
@@ -206,22 +221,6 @@ class TelemetryGui(QWidget):
 
             pos: QtCore.QPoint = label.rect().center();
             label.showContextMenu(pos, driver_position);        
-
-    @QtCore.Slot(int)
-    def handle_label_click(self, driverPosition: int):
-        driver_id = None;
-        name = None;
-
-        for id in self.telemetry.total_num_cars:
-            if self.telemetry.laptime_data.get_lapdata_value_from_key(id)['m_carPosition'] == driverPosition + 1:
-                driver_id = id;
-                name = self.telemetry.getDriverNameFromId(driver_id);
-                break;
-        
-        if driver_id is not None:
-            driver_data = self.telemetry.driverSummary.getDriverSummary(driver_id);
-            if driver_id not in self.openDriverWindows:
-                self.show_driver_info(driver_id, name, driver_data);
     
     @QtCore.Slot(dict)
     def update_driver_window(self,  new_data_dict: Dict[int, Dict[str, Any]]):
@@ -240,25 +239,50 @@ class TelemetryGui(QWidget):
             
             self.openDriverWindows[driver_id].dataUpdated.emit(driver_data);
     
-    def show_driver_info(self, driver_id: int, name: str, driver_data: Dict[int, Dict[str, Any]]):
+        if driver_id in self.openCarWindows:
+            if self.isSessionStarting:
+                car_data = {};
+                self.isSessionStarting = False;
+            else:
+                car_data = self.telemetry.carHistorySummary.getCarHistorySummary(driver_id);
+            
+            self.openCarWindows[driver_id].dataUpdated.emit(car_data);
+    
+    def showDriverRaceTimes(self, driver_id: int, name: str, driver_data: Dict[int, Dict[str, Any]]):
 
         driver_info_window = DriverHistoryGui(driver_id, name, driver_data);
         driver_info_window.finished.connect(lambda: self.closeDriverInfo(driver_id));
         self.openDriverWindows[driver_id] = driver_info_window;
         driver_info_window.show();
     
+    def showCarDataSummary(self, driver_id: int, name: str, car_data: Dict[int, Dict[str, Any]]):
+        
+        car_info_window = CarHistoryGui(driver_id, name, car_data);
+        car_info_window.finished.connect(lambda: self.closeCarInfo(driver_id));
+        self.openCarWindows[driver_id] = car_info_window;
+        car_info_window.show();
+
     # Callback from telemetry, event fires whenever session is started to make sure all ui elements are empty
     def resetUIElementsIfOpen(self):
         for driver_id in range(self.telemetry.total_num_cars):
             if driver_id in self.openDriverWindows:
                 self.isSessionStarting = True;
                 self.on_lap_changed(driver_id);
+            if driver_id in self.openCarWindows:
+                self.isSessionStarting = True;
+                self.on_lap_changed(driver_id);            
 
     def closeDriverInfo(self, driver_id: int):
 
         if driver_id in self.openDriverWindows:
             self.openDriverWindows[driver_id].deleteLater();
             del self.openDriverWindows[driver_id];
+    
+    def closeCarInfo(self, driver_id: int):
+
+        if driver_id in self.openCarWindows:
+           self.openCarWindows[driver_id].deleteLater();
+           del self.openCarWindows[driver_id];       
 
     # Stop capturing the telemetry
     # TODO: Add this option to an API endpoint
