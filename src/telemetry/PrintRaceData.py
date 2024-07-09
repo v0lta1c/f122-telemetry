@@ -19,13 +19,17 @@ class RaceDataPrinter:
         #finally convert it into a dict
         fcDataSorted = dict(sliced_sorted_fcData);
 
+        participant_data_list = participant_data.get_participant_data_list();
+        car_damage_data_list = car_damage_data.get_carDamage_dict();
+        laptime_data_list = laptime_data.get_lapdata_dict();
+
         #Sort the participant data and car damage data based on the keys of final classification packet
         print(f'Participant Data Dict: {participant_data.get_participant_data_list()}');
         print(f'fcDataSorted Dict: {fcDataSorted}');
         print(f'Numcars: {numCars}');
-        partDataSorted = {key: participant_data.get_participant_data_list()[key] for key in fcDataSorted};
-        carDamageDataSorted = {key: car_damage_data.get_carDamage_dict()[key] for key in fcDataSorted};
-        laptimeDataSorted = {key: laptime_data.get_lapdata_dict()[key] for key in fcDataSorted};
+        partDataSorted = {key: participant_data_list[key] for key in fcDataSorted if key in participant_data_list};
+        carDamageDataSorted = {key: car_damage_data_list[key] for key in fcDataSorted if key in car_damage_data_list};
+        laptimeDataSorted = {key: laptime_data_list[key] for key in fcDataSorted if key in laptime_data_list};
 
         #   Make a List for the final output string
         finalOutput = []

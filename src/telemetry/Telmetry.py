@@ -588,7 +588,10 @@ class Telemetry:
         ers_stored = self.car_status_data.get_car_status_data_from_key(driver_id)['m_ersStoreEnergy'];
     
         # Get the total ers used in percentage
-        ers_used = (ers_deployed / (ers_deployed + ers_stored)) * 100;
+        if ers_stored + ers_deployed == 0:
+            ers_used = 0;
+        else:
+            ers_used = (ers_deployed / (ers_deployed + ers_stored)) * 100;
         new_ers_used = ers_used - self.previousErsUsage[driver_id];
         self.previousErsUsage[driver_id] = ers_used;
 
