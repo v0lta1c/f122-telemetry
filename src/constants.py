@@ -9,7 +9,7 @@ UDP_PORT = 20777;	# Default port for F1 2022
 TIMEOUT = 1;       # Timeout for the socket (in seconds)
 
 #   Host and Ports for the discord bot IPC
-IP_discordIPC = "127.0.0.1";
+IP_discordIPC = "84.249.17.176";
 PORT_discordIPC = 20002;
 
 # Using Ubuntu font for the gui
