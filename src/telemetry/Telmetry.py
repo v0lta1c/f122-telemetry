@@ -4,10 +4,12 @@ import time
 import select
 import struct
 import sys
+import json
 from typing import List, Dict, Any, Callable
 
 from constants import *
 from packets import *
+from shared import *
 from DiscordIPCSocket import DiscordIPCSocket
 
 from telemetry.PrintRaceData import RaceDataPrinter
@@ -298,7 +300,8 @@ class Telemetry:
                                 if position_timer is not None:
                                     position_timer.cancel();
                                 if(self.discord_enabled):
-                                    self.send_ipc_trigger('Race Data Trigger');
+                                    datastr = json.dumps(get_json_dump_file());
+                                    self.send_ipc_trigger(f'Race Data Trigger|{datastr}');
                             
                             if(self.results_printed == 1001):
                                 self.results_printed = 1;
