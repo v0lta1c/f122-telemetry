@@ -211,6 +211,15 @@ class Telemetry:
 
                                 case EventStringCode.FASTEST_LAP.value:
                                     e_fastestLapStr = struct.unpack('<Bf', data[28:33]);
+
+                                    # Send the details of the fastest lap to an API endpoint if server is enabled
+
+                                    # First make sure that the participant exists
+                                    if 'm_name' in self.participant_data.get_participant(e_fastestLapStr[0]):
+                                        b, c = divmod(e_fastestLapStr[1]%3600, 60);
+                                        driverName = self.participant_data.get_participant(e_fastestLapStr[0])['m_name'];
+
+                                    # TOREMOVE when shifted to an API endpoint
                                     if self.discord_enabled and 'm_name' in self.participant_data.get_participant(e_fastestLapStr[0]):
                                         b, c = divmod(e_fastestLapStr[1]%3600, 60);
                                         driverName = self.participant_data.get_participant(e_fastestLapStr[0])['m_name'];
