@@ -9,6 +9,7 @@ from ui.TelemetryGui import TelemetryGui
 from server import run_server
 
 from packets import ParticipantData, CarTelemetry, SessionData
+from constants import FONT_PATH
 
 class TelemetryApp(QWidget):
     def __init__(self):
@@ -17,11 +18,25 @@ class TelemetryApp(QWidget):
 
         self.discordEnabled = False;    # To check whether discord bot is to be added or not
 
+        # Add custom font
+        font_id = QtGui.QFontDatabase.addApplicationFont(FONT_PATH);
+        if font_id != -1:
+            font_family = QtGui.QFontDatabase.applicationFontFamilies(font_id)[0];
+            self.custom_font = QtGui.QFont(font_family);
+        else:
+            print("Failed to load the custom font");
+            self.custom_font = self.font(); # Revert to original font
+
         # Create the widgets here
         self.label = QLabel('F1 22 Telemetry', self);
         self.start_button = QPushButton('Start', self);
         self.quit_button = QPushButton('Quit', self);
         self.checkbox = QCheckBox('Enable Discord Bot?', self);
+
+        self.label.setFont(self.custom_font);
+        self.start_button.setFont(self.custom_font);
+        self.quit_button.setFont(self.custom_font);
+        self.checkbox.setFont(self.custom_font);
 
         # Set their layout
         layout = QVBoxLayout(self);

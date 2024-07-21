@@ -22,6 +22,11 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
             self._set_response(404);
             self.wfile.write(json.dumps({'error': 'Not Found'}).encode('utf-8'));
 
+    def do_POST(self):
+        if self.path == "/api/fastest-lap":
+            pass
+
+
 class HTTPServerHandler(HTTPServer):
     def __init__(self, server_address, RequestHandlerClass, stop_event):
         super().__init__(server_address, RequestHandlerClass);

@@ -1,4 +1,7 @@
 logs/
+dist/
+build/
+F1_22_Telemetry.spec
 .vscode/
 
 src/logs
@@ -7,6 +10,7 @@ src/__pycache__
 src/dist
 src/build
 src/ui/__pycache__
+src/ui/components/__pycache__
 src/telemetry/__pycache__
 
 src/f1_22_telemetry.spec

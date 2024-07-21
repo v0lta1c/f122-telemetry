@@ -4,21 +4,26 @@ import time
 import select
 import struct
 import sys
+import json
 from typing import List, Dict, Any, Callable
 
 from constants import *
 from packets import *
+from shared import *
 from DiscordIPCSocket import DiscordIPCSocket
 
 from telemetry.PrintRaceData import RaceDataPrinter
 from telemetry.LogDrivers import LogDrivers
 from telemetry.PitStatus import PitStatusChecker
+from telemetry.DriverSummary import DriverSummary
+from telemetry.CarHistorySummary import CarHistorySummary
 
 class Telemetry:
-    def __init__(self, real_time_callback: Callable):
+    def __init__(self, lap_change_callback: Callable, on_session_start: Callable):
         self.running = False;
         self.discord_enabled = False; # Variable that checks the discord integration
         self.discord_ipc_socket = DiscordIPCSocket();
+        self.inSession = False;
     
         # Initialize all the packets 
         self.participant_data = ParticipantData();
@@ -34,7 +39,8 @@ class Telemetry:
         self.current_positions = CurrentDriverPositions();
 
         self.stop_event = threading.Event();
-        self.real_time_callback = real_time_callback;
+        self.lap_change_callback = lap_change_callback;
+        self.on_session_start = on_session_start;
 
         self.results_printed = 1; # Prevents double printing of the final output on console
         # Variables to track how many cars are still present in the session
@@ -60,6 +66,15 @@ class Telemetry:
         # Initialize the pit status storage instance
         self.pit_status_storage = PitStatusChecker(self.laptime_data, self.pit_status, self.participant_data, self.car_status_data, self.send_ipc_trigger);
         self.pit_status_storage.in_session = False; # Flag to check whether the socket is actually listening to the data
+    
+        # Variables to track the previous sector and lap times
+        self.driverSummary = DriverSummary();
+        self.prev_sector1: List[int] = [0] * 22;
+        self.prev_sector2: List[int] = [0] * 22;
+    
+        # Variables pertaining to the operations in CarHistorySummary
+        self.carHistorySummary = CarHistorySummary();
+        self.previousErsUsage: List[float] = [0] * 22;
 
     def start(self, discord_enabled):
         self.running = True;
@@ -126,6 +141,7 @@ class Telemetry:
                     last_data_recv_time = time.time();
 
                     self.pit_status_storage.in_session = True;
+                    self.inSession = True;
 
                     #   Separate the header
                     dataHeader = data[0:24]; #Header size: 24 bytes
@@ -187,10 +203,23 @@ class Telemetry:
                             match eventType:
 
                                 case EventStringCode.SESSION_STARTED.value:
+                                    self.sessionStartEvent();
                                     inSession = True;
+
+                                case EventStringCode.SESSION_ENDED.value:
+                                    self.sessionEndEvent();
 
                                 case EventStringCode.FASTEST_LAP.value:
                                     e_fastestLapStr = struct.unpack('<Bf', data[28:33]);
+
+                                    # Send the details of the fastest lap to an API endpoint if server is enabled
+
+                                    # First make sure that the participant exists
+                                    if 'm_name' in self.participant_data.get_participant(e_fastestLapStr[0]):
+                                        b, c = divmod(e_fastestLapStr[1]%3600, 60);
+                                        driverName = self.participant_data.get_participant(e_fastestLapStr[0])['m_name'];
+
+                                    # TOREMOVE when shifted to an API endpoint
                                     if self.discord_enabled and 'm_name' in self.participant_data.get_participant(e_fastestLapStr[0]):
                                         b, c = divmod(e_fastestLapStr[1]%3600, 60);
                                         driverName = self.participant_data.get_participant(e_fastestLapStr[0])['m_name'];
@@ -280,7 +309,8 @@ class Telemetry:
                                 if position_timer is not None:
                                     position_timer.cancel();
                                 if(self.discord_enabled):
-                                    self.send_ipc_trigger('Race Data Trigger');
+                                    datastr = json.dumps(get_json_dump_file());
+                                    self.send_ipc_trigger(f'Race Data Trigger|{datastr}');
                             
                             if(self.results_printed == 1001):
                                 self.results_printed = 1;
@@ -310,6 +340,7 @@ class Telemetry:
 
                     # Set the in_session variable to false
                     self.pit_status_storage.in_session = False;
+                    self.inSession = False;
                     # This piece of code cancels the current driver position timer on timeout
                     current_time = time.time();
                     if current_time - last_data_recv_time >= TIMEOUT:
@@ -325,14 +356,14 @@ class Telemetry:
         if self.discord_enabled:
             self.discord_ipc_socket.send_ipc_trigger(message);
     
-    def get_latest_data(self):
+    # Return a dict to the gui with updated summary table data
+    def get_latest_summary_data(self):
         if self.running:
             driver_dict = self.parse_real_time_summary();
             return driver_dict;
-            #active_threads = threading.enumerate();
-            #for threads in active_threads:
-            #    print(f'Thread Name: {threads.name}');
 
+    # Called from the function responsible to update the gui
+    # Parses the current stream of data into a usable dictionary
     def parse_real_time_summary(self) -> Dict[int, Dict[str, Any]]:
 
         # The data is processed and packed into a list.
@@ -389,6 +420,8 @@ class Telemetry:
 
         return driver_dict 
 
+    # This function calculates the time interval between two drivers
+    # Always calculates the interval based on the driver ahead
     def calculate_interval(self, driver_id: int) -> int:
 
         interval = 0;
@@ -453,27 +486,46 @@ class Telemetry:
         if interval < 0: interval = 0;
         return interval
     
-    # Returns the total overall lap time of driver
-    def get_current_total_time(self, driver_id: int) -> int:
+    # Trigger this event when session starts
+    def sessionStartEvent(self):
 
-        current_time = self.laptime_data.get_lapdata_value_from_key(driver_id)['m_currentLapTimeInMS'];
-        return self.times_till_last_lap[driver_id] + current_time
+        # Set the driver summary for all drivers to empty
+        for driver_id in range(self.total_num_cars):
+            self.driverSummary.updateDriverSummary(driver_id, None);
+        
+        # Trigger callback to the gui
+        self.on_session_start();
+    
+    # Trigger this event when session ends
+    def sessionEndEvent(self):
 
-    # Converts time (from ms) into a formatted string 
-    # Output : Minutes:Seconds:Milliseconds
-    def format_time_to_str(self, val: int) -> str:
-        total_seconds = val / 1000;
-        minutes, seconds = divmod(total_seconds, 60);
-
-        seconds_in_int = int(seconds);
-        ms = int((seconds-seconds_in_int) * 1000);
-        return f"{int(minutes)}:{seconds_in_int:02d}:{ms}"
+        # Update for the final lap in the driver summary        
+        for driver_id in range(self.total_num_cars):
+            self.prev_sector1[driver_id] = self.laptime_data.get_lapdata_value_from_key(driver_id)['m_sector1TimeInMS'];
+            self.prev_sector2[driver_id] = self.laptime_data.get_lapdata_value_from_key(driver_id)['m_sector2TimeInMS'];
+            prev_lapTime = self.laptime_data.get_lapdata_value_from_key(driver_id)['m_lastLapTimeInMS'];
+            if prev_lapTime < self.times_best_lap[driver_id]:
+                self.times_best_lap[driver_id] = prev_lapTime;
+            time_sector3 = prev_lapTime - (self.prev_sector1[driver_id] + self.prev_sector2[driver_id]);
+            summary_list = [];
+            summary_list.append(self.laptime_data.get_lapdata_value_from_key(driver_id)['m_currentLapNum']);
+            summary_list.append(self.laptime_data.get_lapdata_value_from_key(driver_id)['m_carPosition']);
+            summary_list.append(self.format_time_to_str(prev_lapTime));
+            summary_list.append(self.format_time_to_str(self.prev_sector1[driver_id]));
+            summary_list.append(self.format_time_to_str(self.prev_sector2[driver_id]));
+            summary_list.append(self.format_time_to_str(time_sector3));
+            self.driverSummary.updateDriverSummary(driver_id=driver_id, summary_list=summary_list);
+    
+            # Trigger a callback to the gui to update the Driver History Window
+            if self.lap_change_callback:
+                self.lap_change_callback(driver_id);
 
     # Method to check for lap changes
     def on_lap_change(self):
 
         lap_changed: bool = False;
         if self.laptime_data is None: return
+        if self.car_status_data is None: return
         for driver_id in range(self.total_num_cars):
             current_lap = self.laptime_data.get_lapdata_value_from_key(driver_id)['m_currentLapNum'];
 
@@ -492,6 +544,89 @@ class Telemetry:
                 if last_lap_time < self.times_best_lap[driver_id] and self.lap_number_current[driver_id] >= 2:
                     self.times_best_lap[driver_id] = last_lap_time;
 
+                if self.laptime_data.get_lapdata_value_from_key(driver_id)['m_currentLapNum'] - 1 == 0:
+                    continue;
+                # Update the DriverSummary
+                prev_lapTime = self.laptime_data.get_lapdata_value_from_key(driver_id)['m_lastLapTimeInMS'];
+                time_sector3 = prev_lapTime - (self.prev_sector1[driver_id] + self.prev_sector2[driver_id]);
+                summary_list = [];
+                summary_list.append(self.laptime_data.get_lapdata_value_from_key(driver_id)['m_currentLapNum'] - 1);
+                summary_list.append(self.laptime_data.get_lapdata_value_from_key(driver_id)['m_carPosition']);
+                summary_list.append(self.format_time_to_str(prev_lapTime));
+                summary_list.append(self.format_time_to_str(self.prev_sector1[driver_id]));
+                summary_list.append(self.format_time_to_str(self.prev_sector2[driver_id]));
+                summary_list.append(self.format_time_to_str(time_sector3));
+                self.driverSummary.updateDriverSummary(driver_id=driver_id, summary_list=summary_list);
+
+                # Update the CarHistorySummary for the driver
+
+                # Get the tyre wears
+                (tyreRLWear, tyreRRWear, tyreFLWear, tyreFRWear) = self.car_damage_data.get_carDamage_data_from_key(driver_id)['m_tyresWear'];
+                inPits: bool = False;
+                if self.laptime_data.get_lapdata_value_from_key(driver_id)['m_pitStatus'] > 0:
+                    inPits = True;
+                else:
+                    inPits = False;
+
+                carHistorySummaryList = [];
+                carHistorySummaryList.append(self.laptime_data.get_lapdata_value_from_key(driver_id)['m_currentLapNum'] - 1);
+                carHistorySummaryList.append(self.laptime_data.get_lapdata_value_from_key(driver_id)['m_carPosition']);
+                carHistorySummaryList.append(tyreRLWear);
+                carHistorySummaryList.append(tyreRRWear);
+                carHistorySummaryList.append(tyreFLWear);
+                carHistorySummaryList.append(tyreFRWear);
+                carHistorySummaryList.append(self.ersUsageCalculator(driver_id));
+                carHistorySummaryList.append(inPits);
+                self.carHistorySummary.updateCarHistorySummary(driver_id=driver_id, carHistorySummaryList=carHistorySummaryList);
+
+                # Trigger a callback to the gui to update the Driver History Window
+                if self.lap_change_callback:
+                    self.lap_change_callback(driver_id);
+            
+            else:
+                # If lap didn't change we still want to know the previous lap's sector times
+                self.prev_sector1[driver_id] = self.laptime_data.get_lapdata_value_from_key(driver_id)['m_sector1TimeInMS'];
+                self.prev_sector2[driver_id] = self.laptime_data.get_lapdata_value_from_key(driver_id)['m_sector2TimeInMS'];
+
             # Reset the flag
             lap_changed = False;
+
+    # This function returns the total percentage of ers used based on ers stored and ers deployed
+    def ersUsageCalculator(self, driver_id: int) -> float:
+        
+        if self.car_status_data.get_car_status_data_from_key(driver_id) is None: return 0
+
+        ers_deployed = self.car_status_data.get_car_status_data_from_key(driver_id)['m_ersDeployedThisLap'];
+        ers_stored = self.car_status_data.get_car_status_data_from_key(driver_id)['m_ersStoreEnergy'];
+    
+        # Get the total ers used in percentage
+        if ers_stored + ers_deployed == 0:
+            ers_used = 0;
+        else:
+            ers_used = (ers_deployed / (ers_deployed + ers_stored)) * 100;
+        new_ers_used = ers_used - self.previousErsUsage[driver_id];
+        self.previousErsUsage[driver_id] = ers_used;
+
+        # Check whether the net usage of ers was more than previous lap or not
+        if new_ers_used > 0:
+            return new_ers_used
+        else:
+            return 0
+
+
+    
+    # This utility function takes in a driver's id and outputs their name
+    def getDriverNameFromId(self, driver_id: int):
+
+        return self.participant_data.get_participant(driver_id)['m_name'];
+
+    # Converts time (from ms) into a formatted string 
+    # Output : Minutes:Seconds:Milliseconds
+    def format_time_to_str(self, val: int) -> str:
+        total_seconds = val / 1000;
+        minutes, seconds = divmod(total_seconds, 60);
+
+        seconds_in_int = int(seconds);
+        ms = int((seconds-seconds_in_int) * 1000);
+        return f"{int(minutes)}:{seconds_in_int:02d}:{ms}"
                 

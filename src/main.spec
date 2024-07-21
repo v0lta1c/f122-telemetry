@@ -22,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='F1_22_Telemetry',
+    name='main',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
