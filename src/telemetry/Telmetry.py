@@ -10,7 +10,7 @@ from typing import List, Dict, Any, Callable
 from constants import *
 from packets import *
 from shared import *
-from DiscordIPCSocket import DiscordIPCSocket
+from server import update_event
 
 from telemetry.PrintRaceData import RaceDataPrinter
 from telemetry.LogDrivers import LogDrivers
@@ -22,7 +22,6 @@ class Telemetry:
     def __init__(self, lap_change_callback: Callable, on_session_start: Callable):
         self.running = False;
         self.discord_enabled = False; # Variable that checks the discord integration
-        self.discord_ipc_socket = DiscordIPCSocket();
         self.inSession = False;
     
         # Initialize all the packets 
@@ -64,7 +63,7 @@ class Telemetry:
         self.log_drivers = LogDrivers(self.participant_data, self.laptime_data, self.current_positions);
     
         # Initialize the pit status storage instance
-        self.pit_status_storage = PitStatusChecker(self.laptime_data, self.pit_status, self.participant_data, self.car_status_data, self.send_ipc_trigger);
+        self.pit_status_storage = PitStatusChecker(self.laptime_data, self.pit_status, self.participant_data, self.car_status_data);
         self.pit_status_storage.in_session = False; # Flag to check whether the socket is actually listening to the data
     
         # Variables to track the previous sector and lap times
@@ -87,11 +86,6 @@ class Telemetry:
         #Start the pit status thread here
         self.pit_status_thread = threading.Thread(target=self.pit_status_storage.check_pit_status, args=(self.discord_enabled,), name="Pit Status Checker", daemon=True);
         self.pit_status_thread.start();
-
-    
-        # Start the thread of the discord ipc socket
-        if self.discord_enabled:
-            self.discord_ipc_socket.start_ipc_socket_thread();
     
         self.log_drivers.start_position_timer();
 
@@ -99,9 +93,6 @@ class Telemetry:
         self.running = False;
         self.stop_event.set();
         self.pit_status_storage.stop();
-
-        if self.discord_enabled:
-            self.discord_ipc_socket.join_ipc_socket_thread();
 
         if self.thread.is_alive():
             self.thread.join();
@@ -218,31 +209,47 @@ class Telemetry:
                                     if 'm_name' in self.participant_data.get_participant(e_fastestLapStr[0]):
                                         b, c = divmod(e_fastestLapStr[1]%3600, 60);
                                         driverName = self.participant_data.get_participant(e_fastestLapStr[0])['m_name'];
+                                    
+                                        fastest_lap_data = {
+                                            'driver': driverName,
+                                            'lap_time': f'{int(b)}.{str(c)[:5]}'
+                                        }
 
-                                    # TOREMOVE when shifted to an API endpoint
-                                    if self.discord_enabled and 'm_name' in self.participant_data.get_participant(e_fastestLapStr[0]):
-                                        b, c = divmod(e_fastestLapStr[1]%3600, 60);
-                                        driverName = self.participant_data.get_participant(e_fastestLapStr[0])['m_name'];
-                                        self.send_ipc_trigger(f'FASTEST_LAP: Driver {driverName} has just set the fastest lap time of {int(b)}.{str(c)[:5]}');
-
+                                        update_event('fastest-lap', fastest_lap_data);
+                                
                                 case EventStringCode.PENALTY_ISSUED.value:
                                     penaltyStr = struct.unpack(p_eventPenaltyString, data[28:35]);
                                     self.penalty_event.add_penalty_data(penaltyStr);
                                     
                                     if 'm_name' in self.participant_data.get_participant(self.penalty_event.get_penalty_data_from_key('vehicleIdx')):
                                         penalisedDriver = self.participant_data.get_participant(self.penalty_event.get_penalty_data_from_key('vehicleIdx'))['m_name'];
-                                        if self.discord_enabled:
-                                            if self.penalty_event.get_penalty_data_from_key('penaltyType') == PenaltyTypes.DRIVE_THROUGH.value:
-                                                self.send_ipc_trigger(f'DRIVE_THROUGH: Driver {penalisedDriver} has been issued a drive through penalty.');
-                                            if self.penalty_event.get_penalty_data_from_key('penaltyType') == PenaltyTypes.TIME_PENALTY.value:
-                                                self.send_ipc_trigger(f'TIME_PENALTY: Driver {penalisedDriver} has been issued a time penalty');
-                        
+                                        penalty_data = {};
+                                        
+                                        if self.penalty_event.get_penalty_data_from_key('penaltyType') == PenaltyTypes.DRIVE_THROUGH.value:
+                                            penalty_data = {
+                                                'driver': penalisedDriver,
+                                            };
+
+                                            update_event('drive-through', penalty_data);
+                                    
+                                        if self.penalty_event.get_penalty_data_from_key('penaltyType') == PenaltyTypes.TIME_PENALTY.value:
+                                            penalty_data = {
+                                                'driver': penalisedDriver,
+                                                'time': self.penalty_event.get_penalty_data_from_key('time')
+                                            }
+
+                                            update_event('time-penalty', penalty_data);
+
                                 case EventStringCode.RETIREMENT.value:
                                     e_retirementStr = data[28];
-                                    if(self.discord_enabled) and 'm_name' in self.participant_data.get_participant(e_retirementStr):
 
+                                    if 'm_name' in self.participant_data.get_participant(e_retirementStr):
                                         driverName = self.participant_data.get_participant(e_retirementStr)['m_name'];
-                                        self.send_ipc_trigger(f'RETIREMENT: Driver {driverName} has retired from the session.');
+                                        retirement_data = {
+                                            'driver': driverName
+                                        };
+
+                                        update_event('retirement', retirement_data);
 
                         case 4: #Participants Data Packet
                             numCars: int = data[24];
@@ -308,9 +315,10 @@ class Telemetry:
                                 inSession = False;
                                 if position_timer is not None:
                                     position_timer.cancel();
-                                if(self.discord_enabled):
-                                    datastr = json.dumps(get_json_dump_file());
-                                    self.send_ipc_trigger(f'Race Data Trigger|{datastr}');
+                                
+                                datastr = json.dumps(get_json_dump_file());
+                                update_event('raceData', datastr);
+
                             
                             if(self.results_printed == 1001):
                                 self.results_printed = 1;
@@ -351,10 +359,6 @@ class Telemetry:
             
             except KeyboardInterrupt:
                 break;
-
-    def send_ipc_trigger(self, message: str):
-        if self.discord_enabled:
-            self.discord_ipc_socket.send_ipc_trigger(message);
     
     # Return a dict to the gui with updated summary table data
     def get_latest_summary_data(self):

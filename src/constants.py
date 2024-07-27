@@ -12,6 +12,9 @@ TIMEOUT = 1;       # Timeout for the socket (in seconds)
 IP_discordIPC = "84.249.17.176";
 PORT_discordIPC = 20002;
 
+webhook_IP = "84.249.17.176";
+webhook_PORT = 20003;
+
 # Using Ubuntu font for the gui
 # Rights to the font belongs to Ubuntu
 font = 'Ubuntu-Regular.ttf';

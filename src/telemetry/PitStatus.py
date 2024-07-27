@@ -3,6 +3,7 @@ import time
 
 from constants import TyreCompound
 from packets import PitStatusStorage, LapTimeData, ParticipantData, CarStatusData
+from server import update_event
 
 """
 This function runs in a separate thread and checks the pit status of every vehicle.
@@ -13,12 +14,11 @@ Another option to call out the driver and their fitted tyre when they enter the 
 """
 
 class PitStatusChecker:
-    def __init__(self, laptime_data, pit_status, participant_data, car_status_data, send_ipc_trigger):
+    def __init__(self, laptime_data, pit_status, participant_data, car_status_data):
         self.laptime_data: LapTimeData = laptime_data;
         self.pit_status: PitStatusStorage = pit_status;
         self.participant_data: ParticipantData = participant_data;
         self.car_status_data: CarStatusData = car_status_data;
-        self.send_ipc_trigger = send_ipc_trigger;
         self.in_session = False;
         self.stop_event = threading.Event();
 
@@ -49,12 +49,24 @@ class PitStatusChecker:
                             
                             if current_pit_status == 0 and discord_enabled:
                                 if tyreAge == 0:
-                                    pass;
-                                    self.send_ipc_trigger(f'PIT_CHANGE: Driver {driverName} is leaving the pits with fresh {tyreCompoundName}s.');
+
+                                    pit_data = {
+                                        'driver': driverName,
+                                        'tyreCompound': tyreCompoundName
+                                    }
+
+                                    update_event('pit-change', pit_data);
+
                                 else:
-                                    pass;
-                                    self.send_ipc_trigger(f'PIT_CHANGE: Driver {driverName} is leaving the pits with {tyreAge} laps old {tyreCompoundName}s.');
-                
+                                    
+                                    pit_data = {
+                                        'driver': driverName,
+                                        'tyreAge': tyreAge,
+                                        'tyreCompound': tyreCompoundName
+                                    }
+
+                                    update_event('pit-change', pit_data);
+
                 time.sleep(10);
 
     def stop(self):
